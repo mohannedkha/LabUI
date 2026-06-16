@@ -36,6 +36,14 @@
         <option value="">No manuscript context</option>
       </select>
       <div class="flex-1"></div>
+      <select id="topk-select" title="How many passages + web results to retrieve"
+              class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <option value="5">5 results</option>
+        <option value="10" selected>10 results</option>
+        <option value="15">15 results</option>
+        <option value="20">20 results</option>
+        <option value="30">30 results</option>
+      </select>
       <span id="cite-status" class="text-[11px] text-ink-400"></span>
     </div>
 
@@ -329,7 +337,7 @@ async function sendQuery() {
     query,
     agent: currentAgent,
     session_id: currentSessionId,
-    top_k: 10,
+    top_k: parseInt((document.getElementById('topk-select') || {}).value, 10) || 10,
     gen_model: (typeof getActiveModel === 'function' ? getActiveModel() : null) || undefined,
   };
 

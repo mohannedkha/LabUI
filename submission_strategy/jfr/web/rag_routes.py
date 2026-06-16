@@ -637,7 +637,7 @@ def api_query(body: QueryBody):
     gen_model = body.gen_model or resolve_gen_model()
     agent = get_agent(agent_id)
     default_top_k = agent.get("top_k", FINAL_TOP_K)
-    top_k = min(int(body.top_k or default_top_k), 12)
+    top_k = min(int(body.top_k or default_top_k), 30)
     images = body.images or []
     selected_paper_ids = body.selected_paper_ids
     doc_context = (body.doc_context or "").strip() or None
@@ -657,7 +657,7 @@ def api_query(body: QueryBody):
         qvec = _embed_query(tok, emb, query)
         with ThreadPoolExecutor(max_workers=2) as pool:
             local_fut = pool.submit(_search, query, qvec, rnk, top_k, selected_paper_ids)
-            web_fut = pool.submit(_web_search, query, 6)
+            web_fut = pool.submit(_web_search, query, top_k)
             chunks = local_fut.result()
             web_results = web_fut.result()
     except Exception as e:
