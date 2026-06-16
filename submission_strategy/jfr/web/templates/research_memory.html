@@ -67,7 +67,7 @@ function renderMemories(items) {
       <article class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl p-4 flex gap-3">
         <span class="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-md self-start ${style}">${escapeHtml(m.memory_type || 'note')}</span>
         <div class="flex-1 text-sm leading-relaxed text-ink-700 dark:text-ink-200">${escapeHtml(m.content)}</div>
-        <button onclick="deleteMemory('${escapeJs(m.id)}')" class="text-ink-300 hover:text-rose-500 text-xs" title="Delete">✕</button>
+        <button onclick="deleteMemory('${escapeJs(m.memory_id || m.id)}')" class="text-ink-300 hover:text-rose-500 text-xs" title="Delete">✕</button>
       </article>`;
   }).join('');
 }
