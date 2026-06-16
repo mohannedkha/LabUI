@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ exp.name }}{% endblock %}
+{% block heading %}{{ exp.name }}{% endblock %}
+{% block subtitle %}
+  {{ exp.id }}
+  {% if exp.manuscript_title %} · <a href="/manuscripts/{{ exp.manuscript_id }}/edit" class="text-brand-600 dark:text-brand-300 hover:underline">{{ exp.manuscript_title[:60] }}</a>{% endif %}
+{% endblock %}
+{% block header_actions %}
+  <a href="/experiments" class="bg-ink-100 dark:bg-ink-800 hover:bg-ink-200 text-ink-700 dark:text-ink-100 text-sm font-medium px-4 py-2 rounded-xl">← Back</a>
+  <a href="/experiments/{{ exp.id }}/edit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl">Edit</a>
+{% endblock %}
+
+{% block content %}
+{% set status_chip = {
+  'planned':     'chip-brand',
+  'in_progress': 'chip-warn',
+  'done':        'chip-success',
+  'failed':      'chip-danger',
+  'abandoned':   'chip',
+} %}
+
+<div class="grid grid-cols-12 gap-5">
+  <!-- Left: main detail -->
+  <main class="col-span-12 xl:col-span-8 space-y-4">
+
+    <!-- Meta strip -->
+    <div class="tile flex flex-wrap items-center gap-3">
+      <span class="chip {{ status_chip.get(exp.status, 'chip') }}">{{ exp.status.replace('_', ' ') }}</span>
+      {% if exp.ran_on %}
+      <span class="text-sm text-ink-600 dark:text-ink-300">
+        <span class="text-[10px] uppercase tracking-wider font-semibold text-ink-400">Ran</span>
+        <span class="font-mono ml-1">{{ exp.ran_on }}</span>
+      </span>
+      {% endif %}
+      {% if exp.scheduled_for %}
+      <span class="text-sm text-ink-600 dark:text-ink-300">
+        <span class="text-[10px] uppercase tracking-wider font-semibold text-ink-400">Scheduled</span>
+        <span class="font-mono ml-1">{{ exp.scheduled_for }}</span>
+      </span>
+      {% endif %}
+      {% if exp.tags %}
+      <span class="text-ink-300">·</span>
+      {% for t in exp.tags %}<span class="chip chip-brand">{{ t }}</span>{% endfor %}
+      {% endif %}
+    </div>
+
+    {% if exp.objective or exp.methodology or exp.equipment or exp.conditions %}
+    <!-- Protocol -->
+    <section class="tile space-y-4">
+      <h3 class="text-sm font-semibold uppercase tracking-wider text-ink-400">Protocol</h3>
+      {% if exp.objective %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1">Objective</div>
+        <p class="text-sm leading-relaxed text-ink-700 dark:text-ink-200 whitespace-pre-line">{{ exp.objective }}</p>
+      </div>
+      {% endif %}
+      {% if exp.methodology %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1">Methodology</div>
+        <p class="text-sm leading-relaxed text-ink-700 dark:text-ink-200 whitespace-pre-line">{{ exp.methodology }}</p>
+      </div>
+      {% endif %}
+      {% if exp.equipment %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1">Equipment</div>
+        <p class="text-sm leading-relaxed text-ink-700 dark:text-ink-200 whitespace-pre-line">{{ exp.equipment }}</p>
+      </div>
+      {% endif %}
+      {% if exp.conditions %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-2">Conditions</div>
+        <table class="w-full text-sm">
+          <tbody>
+            {% for k, v in exp.conditions.items() %}
+            <tr class="border-t border-ink-100 dark:border-ink-800">
+              <td class="py-1.5 pr-4 font-mono text-xs text-ink-500 align-top">{{ k }}</td>
+              <td class="py-1.5 text-ink-700 dark:text-ink-200">{{ v }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if exp.observations or exp.results_md %}
+    <!-- Results -->
+    <section class="tile space-y-4">
+      <h3 class="text-sm font-semibold uppercase tracking-wider text-ink-400">Results</h3>
+      {% if exp.observations %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1">Observations</div>
+        <p class="text-sm leading-relaxed text-ink-700 dark:text-ink-200 whitespace-pre-line">{{ exp.observations }}</p>
+      </div>
+      {% endif %}
+      {% if exp.results_md %}
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1">Findings</div>
+        <div class="md-body text-sm" id="results-md"></div>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if exp.notes_md %}
+    <!-- Notes -->
+    <section class="tile">
+      <h3 class="text-sm font-semibold uppercase tracking-wider text-ink-400 mb-2">Side notes</h3>
+      <div class="md-body text-sm" id="notes-md"></div>
+    </section>
+    {% endif %}
+  </main>
+
+  <!-- Right rail: linked papers + metadata -->
+  <aside class="col-span-12 xl:col-span-4 space-y-4">
+    <div class="tile">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-100">Linked papers</h3>
+        <span class="chip">{{ exp.linked_papers | length }}</span>
+      </div>
+      <div id="linked-list" class="space-y-2"></div>
+    </div>
+
+    <div class="tile text-[11px] text-ink-500 dark:text-ink-400 space-y-1.5">
+      <div class="flex justify-between"><span>Created</span><span class="font-mono">{{ exp.created_at[:10] }}</span></div>
+      <div class="flex justify-between"><span>Updated</span><span class="font-mono">{{ exp.updated_at[:10] }}</span></div>
+      <div class="flex justify-between"><span>ID</span><span class="font-mono">{{ exp.id }}</span></div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script>
+const LINKED = {{ exp.linked_papers | tojson }};
+const RESULTS_MD = {{ (exp.results_md or '') | tojson }};
+const NOTES_MD = {{ (exp.notes_md or '') | tojson }};
+
+let mdReady = false;
+try { marked.use({ gfm: true, breaks: true }); mdReady = true; } catch (e) {}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const rm = document.getElementById('results-md');
+  if (rm) rm.innerHTML = mdReady ? marked.parse(RESULTS_MD) : `<pre>${escapeHtml(RESULTS_MD)}</pre>`;
+  const nm = document.getElementById('notes-md');
+  if (nm) nm.innerHTML = mdReady ? marked.parse(NOTES_MD) : `<pre>${escapeHtml(NOTES_MD)}</pre>`;
+  loadLinkedPapers();
+});
+
+async function loadLinkedPapers() {
+  const list = document.getElementById('linked-list');
+  if (!LINKED.length) {
+    list.innerHTML = '<div class="text-[11px] text-ink-400 text-center py-3">No linked papers.</div>';
+    return;
+  }
+  list.innerHTML = LINKED.map(pid => `
+    <a href="/api/rag/pdf?id=${encodeURIComponent(pid)}" target="_blank"
+       class="block border border-ink-200 dark:border-ink-800 rounded-md p-2 hover:border-brand-400 transition" id="lp-${cssId(pid)}">
+      <div class="text-xs font-medium truncate" id="lt-${cssId(pid)}">Loading…</div>
+      <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(pid)}</div>
+    </a>
+  `).join('');
+
+  // Fetch titles in parallel
+  for (const pid of LINKED) {
+    fetch('/api/rag/paper?id=' + encodeURIComponent(pid))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const el = document.getElementById('lt-' + cssId(pid));
+        if (el && d) el.textContent = (d.title || pid).slice(0, 80);
+      })
+      .catch(() => {});
+  }
+}
+
+function cssId(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+{% endblock %}

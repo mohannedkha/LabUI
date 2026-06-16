@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Experiments{% endblock %}
+{% block heading %}Experiments{% endblock %}
+{% block subtitle %}{{ total_count }} recorded · grouped by manuscript{% endblock %}
+{% block header_actions %}
+  <a href="/experiments/new"
+     class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add experiment
+  </a>
+{% endblock %}
+
+{% block content %}
+{% set status_chip = {
+  'planned':     'chip-brand',
+  'in_progress': 'chip-warn',
+  'done':        'chip-success',
+  'failed':      'chip-danger',
+  'abandoned':   'chip',
+} %}
+
+{% if upcoming %}
+<!-- ── Upcoming ────────────────────────────────────────────────────────── -->
+<div class="tile-inverted mb-5">
+  <div class="flex items-center justify-between relative z-10 mb-3">
+    <div>
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300">Upcoming</span>
+      <h2 class="text-lg font-semibold text-brand-900 dark:text-white mt-1">Scheduled experiments</h2>
+    </div>
+    <a href="/schedule" class="text-xs bg-brand-600 hover:bg-brand-700 text-white font-semibold px-3 py-1.5 rounded-lg">Calendar →</a>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 relative z-10">
+    {% for e in upcoming %}
+    <a href="/experiments/{{ e.id }}" class="bg-white/70 hover:bg-white dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur rounded-xl p-3 transition block">
+      <div class="text-[11px] text-brand-700 dark:text-brand-200 font-mono">{{ e.scheduled_for }}</div>
+      <div class="text-sm font-semibold text-brand-900 dark:text-white mt-0.5 truncate">{{ e.name }}</div>
+      {% if e.manuscript_title %}<div class="text-[11px] text-brand-700 dark:text-brand-200 mt-0.5 truncate">→ {{ e.manuscript_title[:40] }}</div>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if grouped %}
+<div class="space-y-4">
+  {% for g in grouped %}
+  <div x-data="{open: true}" class="tile tile-flush overflow-hidden">
+    <!-- Group header -->
+    <button @click="open = !open" class="w-full flex items-center gap-3 px-6 py-4 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+      <svg class="w-4 h-4 text-ink-400 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+      <div class="flex-1 text-left">
+        <div class="text-sm font-semibold text-ink-800 dark:text-ink-50">
+          {% if g.manuscript_id %}{{ g.manuscript_title[:80] }}{% else %}Unassigned{% endif %}
+        </div>
+        {% if g.manuscript_id %}
+        <div class="text-[11px] text-ink-400 font-mono mt-0.5 truncate">{{ g.manuscript_id }}</div>
+        {% else %}
+        <div class="text-[11px] text-ink-400 mt-0.5">Experiments not yet tied to a manuscript</div>
+        {% endif %}
+      </div>
+      <span class="chip">{{ g.experiments | length }}</span>
+      {% if g.manuscript_id %}
+      <a href="/experiments/new?ms={{ g.manuscript_id }}" onclick="event.stopPropagation()"
+         class="text-[11px] text-brand-600 dark:text-brand-300 hover:underline">+ Add to this manuscript</a>
+      {% endif %}
+    </button>
+
+    <!-- Rows -->
+    <div x-show="open" x-transition class="border-t border-ink-100 dark:border-ink-800">
+      <div class="divide-y divide-ink-100 dark:divide-ink-800">
+        {% for e in g.experiments %}
+        <a href="/experiments/{{ e.id }}" class="flex items-center gap-4 px-6 py-3.5 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-ink-800 dark:text-ink-100 truncate">{{ e.name }}</div>
+            <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+              <span class="text-[11px] text-ink-400 font-mono">{{ e.id }}</span>
+              {% if e.ran_on %}
+                <span class="text-[11px] text-ink-400">· ran {{ e.ran_on }}</span>
+              {% elif e.scheduled_for %}
+                <span class="text-[11px] text-ink-400">· scheduled {{ e.scheduled_for }}</span>
+              {% endif %}
+              {% for t in e.tags[:4] %}
+                <span class="chip chip-brand">{{ t }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          <span class="chip {{ status_chip.get(e.status, 'chip') }}">{{ e.status.replace('_', ' ') }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="tile text-center py-16">
+  <svg class="w-16 h-16 mx-auto text-ink-300 dark:text-ink-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+  </svg>
+  <h2 class="text-lg font-semibold text-ink-800 dark:text-ink-100">No experiments yet</h2>
+  <p class="text-sm text-ink-500 dark:text-ink-400 mt-1">
+    Start by recording your past runs — name, date, manuscript link, what you observed.
+  </p>
+  <a href="/experiments/new"
+     class="inline-flex items-center gap-2 mt-5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add your first experiment
+  </a>
+</div>
+{% endif %}
+{% endblock %}

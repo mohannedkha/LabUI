@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LabUI{% endblock %} — LabUI</title>
+
+  <!-- Pre-paint theme: read storage / system preference and set `class="dark"` early so we don't flash. -->
+  <script>
+    (function () {
+      try {
+        const saved = localStorage.getItem('labui-theme');
+        const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const dark = saved ? saved === 'dark' : sysDark;
+        if (dark) document.documentElement.classList.add('dark');
+      } catch (e) { /* localStorage may be unavailable */ }
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            ink: {
+              50:  '#f7f8fa',  100: '#eef0f4',
+              200: '#dde1e8',  300: '#bfc6d2',
+              400: '#8b94a6',  500: '#5a6478',
+              600: '#3e4759',  700: '#2a3142',
+              800: '#1c2230',  900: '#12161f',
+              950: '#0a0d14',
+            },
+            brand: {
+              50:  '#eef1ff',  100: '#e0e5ff',  200: '#c7d0ff',
+              300: '#a3b1ff',  400: '#7c8aff',  500: '#5e6bf0',
+              600: '#4e58d8',  700: '#3f47b3',  800: '#353c8f',
+              900: '#2e3573',  950: '#1d2050',
+            },
+          },
+          boxShadow: {
+            soft: '0 1px 2px rgb(0 0 0 / 0.04), 0 1px 8px rgb(0 0 0 / 0.04)',
+            'soft-dark': '0 1px 2px rgb(0 0 0 / 0.3), 0 1px 12px rgb(0 0 0 / 0.4)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+  <style>
+    html, body { height: 100%; }
+    body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    [x-cloak] { display: none !important; }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: flex; }
+    .htmx-request.htmx-indicator { display: flex; }
+    .score-bar { transition: width 0.6s ease; }
+    .state-badge { font-size: 0.7rem; letter-spacing: 0.05em; }
+
+    /* Custom scrollbars for the chat / sidebar */
+    .scroll-thin::-webkit-scrollbar { width: 10px; height: 10px; }
+    .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(120,130,150,0.25); border-radius: 6px; }
+    .scroll-thin::-webkit-scrollbar-thumb:hover { background: rgba(120,130,150,0.45); }
+
+    /* Status dot */
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8; box-shadow: 0 0 0 0 rgba(34,197,94,0); transition: background-color 0.3s ease;
+    }
+    .status-dot.ok   { background: #22c55e; }
+    .status-dot.warn { background: #f59e0b; }
+    .status-dot.err  { background: #ef4444; }
+    .status-dot.pulse { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); }
+      50%     { box-shadow: 0 0 0 6px rgba(34,197,94,0);   }
+    }
+
+    /* Markdown body inside chat */
+    .md-body p { margin: 0.5em 0; }
+    .md-body code { font-family: 'IBM Plex Mono', monospace; font-size: 0.85em;
+                    padding: 1px 5px; border-radius: 4px; background: rgba(120,130,150,0.15); }
+    .md-body pre { background: rgba(120,130,150,0.10); padding: 12px; border-radius: 8px;
+                   overflow-x: auto; margin: 0.6em 0; font-size: 0.85em; }
+    .md-body pre code { background: transparent; padding: 0; }
+    .md-body a { color: #5e6bf0; text-decoration: underline; }
+    .dark .md-body a { color: #a3b1ff; }
+    .md-body ul, .md-body ol { padding-left: 1.25em; margin: 0.5em 0; }
+    .md-body h2 { font-size: 1.05rem; font-weight: 600; margin-top: 1em; }
+    .md-body h3 { font-size: 0.95rem; font-weight: 600; margin-top: 0.8em; }
+    .md-body blockquote { border-left: 3px solid #c7d0ff; padding-left: 10px; color: #5a6478; margin: 0.5em 0; }
+    .dark .md-body blockquote { border-color: #353c8f; color: #bfc6d2; }
+
+    .cite-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #eef1ff; color: #3f47b3; font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; padding: 1px 6px; border-radius: 4px; margin: 0 1px; cursor: pointer;
+      vertical-align: baseline; line-height: 1.3;
+    }
+    .cite-chip:hover { background: #c7d0ff; }
+    .dark .cite-chip { background: #1d2050; color: #a3b1ff; }
+    .dark .cite-chip:hover { background: #2e3573; }
+
+    .spinner {
+      width: 14px; height: 14px; border: 2px solid rgba(120,130,150,0.3);
+      border-top-color: #5e6bf0; border-radius: 50%;
+      animation: spin 0.7s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Aurora Light — tile primitives (Active Orders flavor) ── */
+    .tile {
+      background: #ffffff;
+      border-radius: 24px;
+      box-shadow: 0 1px 2px rgba(15, 19, 36, 0.03), 0 16px 48px -20px rgba(15, 19, 36, 0.10);
+      padding: 24px 26px;
+    }
+    .dark .tile {
+      background: #1c2230;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 16px 48px -20px rgba(0,0,0,0.6);
+    }
+    .tile-flush  { padding: 0; }
+    .tile-tight  { padding: 14px 18px; }
+
+    /* Inverted hero — Aurora Light replaces the dark gradient with a
+       lavender-tinted card + indigo text. Same focal hierarchy, lighter mood. */
+    .tile-inverted {
+      background: linear-gradient(135deg, #eef1ff 0%, #e0e5ff 100%);
+      color: #2e3573;
+      border-radius: 24px;
+      padding: 24px 26px;
+      box-shadow: 0 1px 2px rgba(15, 19, 36, 0.03), 0 16px 48px -20px rgba(94, 107, 240, 0.25);
+      position: relative; overflow: hidden;
+    }
+    .tile-inverted::after {
+      content: ""; position: absolute; right: -60px; top: -60px;
+      width: 220px; height: 220px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(94,107,240,0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .dark .tile-inverted {
+      background: linear-gradient(135deg, #1d2050 0%, #353c8f 100%);
+      color: #eef1ff;
+      box-shadow: 0 16px 48px -20px rgba(124, 138, 255, 0.45);
+    }
+
+    .stat-label   { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8b94a6; }
+    .dark .stat-label { color: #5a6478; }
+    .stat-num     { font-size: 38px; line-height: 1; font-weight: 700; letter-spacing: -0.02em; }
+    .stat-num-sm  { font-size: 28px; line-height: 1; font-weight: 700; letter-spacing: -0.02em; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600;
+      padding: 3px 10px; border-radius: 999px;
+      background: #eef0f4; color: #5a6478;
+    }
+    .dark .chip { background: #2a3142; color: #bfc6d2; }
+    .chip-brand    { background: #eef1ff; color: #3f47b3; }
+    .chip-success  { background: #dcfce7; color: #15803d; }
+    .chip-warn     { background: #fef3c7; color: #b45309; }
+    .chip-danger   { background: #ffe4e6; color: #be123c; }
+    .dark .chip-brand    { background: #1d2050; color: #a3b1ff; }
+    .dark .chip-success  { background: #052e16; color: #6ee7b7; }
+    .dark .chip-warn     { background: #451a03; color: #fcd34d; }
+    .dark .chip-danger   { background: #4c0519; color: #fda4af; }
+
+    .sparkline { height: 30px; display: block; }
+
+    /* Aurora Light — soft lavender-grey bg behind the rounded app shell */
+    body { background-color: #eef0f7; }
+    .dark body { background-color: #07090f; }
+
+    /* The big rounded outer shell that wraps sidebar + main */
+    .app-shell {
+      background: #ffffff;
+      border-radius: 28px;
+      box-shadow: 0 1px 2px rgba(15,19,36,0.04), 0 30px 80px -30px rgba(15,19,36,0.20);
+      overflow: hidden;
+    }
+    .dark .app-shell {
+      background: #12161f;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 30px 80px -30px rgba(0,0,0,0.7);
+    }
+
+    /* Nav item — Active Orders style: active item is a popped indigo card */
+    .nav-link {
+      display: flex; align-items: center; gap: 12px;
+      padding: 9px 12px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      color: #5a6478;
+      transition: all 0.18s ease;
+    }
+    .dark .nav-link { color: #bfc6d2; }
+    .nav-link:hover { background: #f3f4f8; color: #2a3142; }
+    .dark .nav-link:hover { background: #1c2230; color: #eef0f4; }
+
+    .nav-link.active {
+      background: #eef1ff;
+      color: #3f47b3;
+      font-weight: 600;
+      box-shadow: 0 4px 12px -4px rgba(94, 107, 240, 0.35);
+    }
+    .dark .nav-link.active {
+      background: linear-gradient(135deg, #1d2050 0%, #353c8f 100%);
+      color: #c7d0ff;
+      box-shadow: 0 4px 16px -4px rgba(124, 138, 255, 0.45);
+    }
+    .nav-link.active svg { color: #5e6bf0; }
+    .dark .nav-link.active svg { color: #a3b1ff; }
+
+    /* Dark-mode fallback overrides so existing jfr templates that hardcode
+       Tailwind grays remain legible without per-template edits. */
+    .dark .bg-white       { background-color: #1c2230 !important; }
+    .dark .bg-gray-50     { background-color: #12161f !important; }
+    .dark .bg-gray-100    { background-color: #1c2230 !important; }
+    .dark .bg-indigo-50   { background-color: #1d2050 !important; }
+    .dark .text-gray-800  { color: #eef0f4 !important; }
+    .dark .text-gray-700  { color: #dde1e8 !important; }
+    .dark .text-gray-600  { color: #bfc6d2 !important; }
+    .dark .text-gray-500  { color: #8b94a6 !important; }
+    .dark .text-gray-400  { color: #5a6478 !important; }
+    .dark .text-indigo-900 { color: #c7d0ff !important; }
+    .dark .text-indigo-700 { color: #a3b1ff !important; }
+    .dark .text-indigo-600 { color: #7c8aff !important; }
+    .dark .border-gray-200 { border-color: #2a3142 !important; }
+    .dark .border-gray-100 { border-color: #1c2230 !important; }
+    .dark .border-indigo-200 { border-color: #353c8f !important; }
+    .dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1c2230 !important; }
+    .dark .hover\:bg-gray-50:hover { background-color: #12161f !important; }
+  </style>
+</head>
+<body class="h-full text-ink-800 dark:text-ink-100 font-sans">
+
+<div class="h-full p-3 lg:p-4">
+<div class="app-shell flex h-full">
+  <!-- ── Sidebar ────────────────────────────────────────────────── -->
+  <aside class="w-60 flex flex-col flex-shrink-0">
+    <!-- Brand -->
+    <div class="px-5 pt-5 pb-4 flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-base"
+           style="box-shadow: 0 6px 16px -4px rgba(94,107,240,0.4)">C</div>
+      <div>
+        <div class="font-semibold tracking-tight text-[15px]">LabUI</div>
+        <div class="text-[10px] text-ink-400 dark:text-ink-500 -mt-0.5 uppercase tracking-wider font-semibold">Lab · Literature · Pubs</div>
+      </div>
+    </div>
+
+    {% set workspace_nav = [
+      ('/',             'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
+      ('/manuscripts',  'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Manuscripts'),
+      ('/experiments',  'M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z', 'Experiments'),
+      ('/schedule',     'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'Schedule'),
+      ('/recommend',    'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', 'Recommend'),
+      ('/submissions',  'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', 'Submissions'),
+      ('/journals',     'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', 'Journals'),
+    ] %}
+
+    {% set lab_nav = [
+      ('/research/chat',   'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', 'Chat with Papers'),
+      ('/research/search', 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', 'Paper Search'),
+      ('/research/graph',  'M13 10V3L4 14h7v7l9-11h-7z', 'Knowledge Graph'),
+      ('/research/memory', 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4', 'Memory'),
+      ('/research/notes',  'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Notes'),
+      ('/research/style',  'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', 'Writing Style'),
+    ] %}
+
+    {% macro nav_link(href, icon_d, label) %}
+      {% set active = request.url.path == href or (href != '/' and request.url.path.startswith(href)) %}
+      <a href="{{ href }}" class="nav-link{% if active %} active{% endif %}">
+        <svg class="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_d }}"/>
+        </svg>
+        <span>{{ label }}</span>
+      </a>
+    {% endmacro %}
+
+    <nav class="flex-1 overflow-y-auto scroll-thin px-3 py-2 space-y-5">
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-ink-400 dark:text-ink-500 px-3 mb-2 font-semibold">Workspace</div>
+        <div class="space-y-1">{% for href, icon, label in workspace_nav %}{{ nav_link(href, icon, label) }}{% endfor %}</div>
+      </div>
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-ink-400 dark:text-ink-500 px-3 mb-2 font-semibold">Research Lab</div>
+        <div class="space-y-1">{% for href, icon, label in lab_nav %}{{ nav_link(href, icon, label) }}{% endfor %}</div>
+      </div>
+    </nav>
+
+    <!-- Status footer -->
+    <div class="px-4 pt-3 pb-4 text-[11px] text-ink-500 dark:text-ink-400 space-y-1.5"
+         id="status-footer">
+      <div class="flex items-center justify-between" title="Ollama API">
+        <span class="flex items-center gap-2"><span class="status-dot" id="dot-ollama"></span>Ollama</span>
+        <!-- Model picker: click the model name to switch -->
+        <div x-data="{open: false}" @click.outside="open = false" class="relative">
+          <button @click="open = !open; if (open) refreshModelDropdown();"
+                  class="font-mono text-[10px] text-ink-400 hover:text-brand-600 dark:hover:text-brand-300 flex items-center gap-1 px-1 py-0.5 rounded hover:bg-ink-50 dark:hover:bg-ink-800"
+                  title="Click to switch model">
+            <span id="active-model-label">—</span>
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          <div x-show="open" x-cloak x-transition.opacity
+               class="absolute right-0 bottom-full mb-2 w-72 bg-white dark:bg-ink-900 rounded-xl shadow-[0_10px_30px_-10px_rgba(15,19,36,0.25)] dark:shadow-[0_10px_30px_-10px_rgba(0,0,0,0.6)] border border-ink-200 dark:border-ink-800 p-1.5 z-50">
+            <div class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold text-ink-400 flex items-center justify-between">
+              <span>Generator model</span>
+              <button @click="refreshModelDropdown()" class="text-ink-300 hover:text-brand-600" title="Refresh">↻</button>
+            </div>
+            <div id="model-list" class="max-h-64 overflow-y-auto scroll-thin">
+              <div class="text-center text-[11px] text-ink-400 py-3">Loading…</div>
+            </div>
+            <div class="px-3 pt-2 pb-1 text-[10px] text-ink-400 border-t border-ink-100 dark:border-ink-800 mt-1">
+              Applies to chat. Stored in this browser.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between" title="Embedding model — fixed by the index; changing it requires a full re-embed">
+        <span class="flex items-center gap-2"><span class="status-dot" id="dot-embed"></span>Embeddings</span>
+        <span id="lbl-embed" class="text-ink-400 font-mono text-[10px] truncate max-w-[120px]">—</span>
+      </div>
+      <div class="flex items-center justify-between" title="Index size">
+        <span class="flex items-center gap-2"><span class="status-dot" id="dot-index"></span>Index</span>
+        <span id="lbl-papers" class="text-ink-400">—</span>
+      </div>
+      <div class="flex items-center justify-between gap-2 pt-2 mt-2 border-t border-ink-100 dark:border-ink-800">
+        <a href="/api/docs" class="text-ink-400 hover:text-brand-600 dark:hover:text-brand-300">API docs ↗</a>
+        <button onclick="toggleTheme()" class="text-ink-400 hover:text-brand-600 dark:hover:text-brand-300"
+                title="Toggle light/dark">
+          <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────────── -->
+  <main class="flex-1 overflow-y-auto scroll-thin bg-[#fafbff] dark:bg-[#0f131c]">
+    <header class="sticky top-0 z-10 backdrop-blur px-8 py-5 flex items-center justify-between gap-4"
+            style="background-color: rgba(250, 251, 255, 0.82);">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-bold text-ink-900 dark:text-ink-50 tracking-tight">{% block heading %}{% endblock %}</h1>
+        <p class="text-sm text-ink-400 dark:text-ink-500 mt-0.5">{% block subtitle %}{% endblock %}</p>
+      </div>
+      <div class="flex gap-2 flex-shrink-0">{% block header_actions %}{% endblock %}</div>
+    </header>
+    <div class="px-8 pb-8">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+</div>
+
+<script>
+  // ── Theme toggle ─────────────────────────────────────────────────
+  function toggleTheme() {
+    const root = document.documentElement;
+    const isDark = root.classList.toggle('dark');
+    localStorage.setItem('labui-theme', isDark ? 'dark' : 'light');
+  }
+  // Follow system changes if the user hasn't explicitly chosen
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (!localStorage.getItem('labui-theme')) {
+        document.documentElement.classList.toggle('dark', e.matches);
+      }
+    });
+  } catch (e) {}
+
+  // ── Status footer polling ────────────────────────────────────────
+  async function refreshStatus() {
+    try {
+      const r = await fetch('/api/rag/status');
+      if (!r.ok) return;
+      const s = await r.json();
+      const setDot = (id, ok) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('ok', 'warn', 'err');
+        el.classList.add(ok === true ? 'ok' : (ok === 'warn' ? 'warn' : 'err'));
+      };
+      setDot('dot-ollama', s.ollama && s.gen_model);
+      setDot('dot-embed',  s.embeddings);
+      setDot('dot-index',  s.index);
+      if (s.gen_model_name) window.labuiDefaultModel = s.gen_model_name;
+      updateActiveModelLabel();
+      const p = document.getElementById('lbl-papers');
+      if (p) p.textContent = `${s.papers || 0} papers`;
+      const em = document.getElementById('lbl-embed');
+      if (em && s.embed_model_name) {
+        const short = s.embed_model_name.split('/').pop();
+        em.textContent = s.embed_dim ? `${short} · ${s.embed_dim}d` : short;
+        em.title = `${s.embed_model_name}${s.embed_dim ? ' · ' + s.embed_dim + '-dim' : ''} (fixed by the index)`;
+      }
+    } catch (e) { /* server might be booting */ }
+  }
+  refreshStatus();
+  setInterval(refreshStatus, 15000);
+
+  // ── Model picker ─────────────────────────────────────────────────
+  window.labuiModels = [];
+  window.labuiDefaultModel = null;
+
+  function getActiveModel() {
+    return localStorage.getItem('labui-gen-model') || window.labuiDefaultModel || '';
+  }
+  function setActiveModel(name) {
+    localStorage.setItem('labui-gen-model', name);
+    updateActiveModelLabel();
+    window.dispatchEvent(new CustomEvent('labui-model-changed', { detail: { model: name } }));
+  }
+  function clearActiveModelOverride() {
+    localStorage.removeItem('labui-gen-model');
+    updateActiveModelLabel();
+    window.dispatchEvent(new CustomEvent('labui-model-changed', { detail: { model: getActiveModel() } }));
+  }
+  function updateActiveModelLabel() {
+    const el = document.getElementById('active-model-label');
+    if (el) el.textContent = getActiveModel() || '—';
+    // Also update any in-page generator labels
+    document.querySelectorAll('[data-gen-label]').forEach(e => {
+      e.textContent = getActiveModel() || '—';
+    });
+  }
+
+  async function refreshModelDropdown() {
+    const list = document.getElementById('model-list');
+    if (!list) return;
+    list.innerHTML = '<div class="text-center text-[11px] text-ink-400 py-3"><span class="spinner"></span></div>';
+    try {
+      const r = await fetch('/api/rag/models');
+      const d = await r.json();
+      window.labuiModels = d.models || [];
+      if (d.default && !window.labuiDefaultModel) window.labuiDefaultModel = d.default;
+      renderModelDropdown();
+    } catch (e) {
+      list.innerHTML = `<div class="text-rose-500 text-[11px] px-3 py-2">${e.message}</div>`;
+    }
+  }
+
+  function renderModelDropdown() {
+    const list = document.getElementById('model-list');
+    if (!list) return;
+    if (!window.labuiModels.length) {
+      list.innerHTML = '<div class="text-center text-[11px] text-ink-400 py-3">No Ollama models found.<br/>Pull one with <code>ollama pull &lt;name&gt;</code></div>';
+      return;
+    }
+    const active = getActiveModel();
+    const isOverridden = !!localStorage.getItem('labui-gen-model');
+    list.innerHTML = window.labuiModels.map(m => {
+      const isActive = active === m.name;
+      const meta = [m.parameter_size, m.size_gb ? `${m.size_gb} GB` : null, m.quantization]
+        .filter(Boolean).join(' · ');
+      return `
+        <button onclick="pickModel('${m.name.replace(/'/g, "\\'")}'); this.closest('[x-data]').__x.$data.open = false;"
+          class="w-full text-left px-3 py-2 rounded-md hover:bg-ink-50 dark:hover:bg-ink-800 flex items-center justify-between gap-2 transition ${isActive ? 'bg-brand-50 dark:bg-brand-950' : ''}">
+          <div class="min-w-0 flex-1">
+            <div class="font-mono text-xs truncate ${isActive ? 'text-brand-700 dark:text-brand-300 font-semibold' : ''}">${m.name}${m.is_default ? ' <span class=\"text-[9px] text-ink-400\">default</span>' : ''}</div>
+            <div class="text-[10px] text-ink-400 truncate">${meta || ''}</div>
+          </div>
+          ${isActive ? '<svg class="w-4 h-4 text-brand-600 dark:text-brand-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>' : ''}
+        </button>`;
+    }).join('') + (isOverridden ? `
+      <button onclick="clearActiveModelOverride(); refreshModelDropdown();"
+        class="w-full text-left px-3 py-2 mt-1 text-[11px] text-ink-500 hover:text-brand-600 hover:bg-ink-50 dark:hover:bg-ink-800 rounded-md transition border-t border-ink-100 dark:border-ink-800">
+        ↻ Reset to server default
+      </button>` : '');
+  }
+
+  function pickModel(name) {
+    setActiveModel(name);
+    renderModelDropdown();
+  }
+
+  // Initial load — get models so label is populated even before dropdown opens
+  refreshModelDropdown();
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

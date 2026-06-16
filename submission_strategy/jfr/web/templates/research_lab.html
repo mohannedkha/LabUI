@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Research Lab{% endblock %}
+{% block heading %}Research Lab — Literature + Publications{% endblock %}
+{% block header_actions %}
+  <a href="/manuscripts/new" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Add Manuscript</a>
+{% endblock %}
+
+{% block content %}
+<!-- Layout: 3-column grid -->
+<div class="grid grid-cols-12 gap-6">
+  
+  <!-- Left: Manuscript selector + RAG search -->
+  <div class="col-span-4 space-y-6">
+    
+    <!-- Manuscript selector -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <h3 class="font-semibold text-gray-700 mb-3">Current Manuscript</h3>
+      {% if selected_ms %}
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+          <div class="text-sm font-medium text-indigo-900">{{ selected_ms }}</div>
+          <div class="text-xs text-indigo-600 mt-1">Active research focus</div>
+        </div>
+      {% endif %}
+      
+      <div class="space-y-2">
+        {% for ms in manuscripts[:10] %}
+          <a href="/lab?ms={{ ms.id }}" 
+             class="block p-3 rounded-lg border {% if ms.id == selected_ms %}bg-indigo-50 border-indigo-200 text-indigo-700{% else %}border-gray-200 hover:bg-gray-50{% endif %} transition">
+            <div class="text-sm font-medium truncate">{{ ms.title[:60] }}</div>
+            <div class="text-xs text-gray-400">{{ ms.id }}</div>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+    
+    <!-- RAG Search -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <h3 class="font-semibold text-gray-700 mb-3">Literature Search</h3>
+      <form class="flex gap-2 mb-4">
+        <input type="text" 
+               id="search-query"
+               placeholder="Search papers..." 
+               class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300"
+               onkeypress="if(event.key==='Enter') doRagSearch()">
+        <button type="button" 
+                onclick="doRagSearch()"
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition">
+          Search
+        </button>
+      </form>
+      
+      <!-- Search results -->
+      <div id="rag-results" class="space-y-2 max-h-96 overflow-y-auto">
+        <div class="text-sm text-gray-400 italic p-4">
+          Enter a query to search your paper collection...
+        </div>
+      </div>
+    </div>
+    
+    <!-- Stats -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <h3 class="font-semibold text-gray-700 mb-3">Lab Statistics</h3>
+      <div class="grid grid-cols-2 gap-4 text-center">
+        <div class="p-3 bg-gray-50 rounded-lg">
+          <div class="text-2xl font-bold text-indigo-600">{{ stats.manuscripts | default(0) }}</div>
+          <div class="text-xs text-gray-500">Manuscripts</div>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-lg">
+          <div class="text-2xl font-bold text-blue-600">{{ stats.rag.papers_indexed if stats.rag else 0 }}</div>
+          <div class="text-xs text-gray-500">Papers Indexed</div>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-lg">
+          <div class="text-2xl font-bold text-green-600">{{ stats.rag.chunks_indexed if stats.rag else 0 | int / 1000 | round(1) ~ 'k' if stats.rag else '0k' }}</div>
+          <div class="text-xs text-gray-500">Chunks Indexed</div>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-lg">
+          <div class="text-2xl font-bold text-purple-600">{{ stats.rag.total_memories if stats.rag and stats.rag else 0 }}</div>
+          <div class="text-xs text-gray-500">Memories</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Right: Manuscript details + Linked papers -->
+  <div class="col-span-8 space-y-6">
+    
+    <!-- Manuscript details (shown when ms_id selected) -->
+    {% if selected_ms %}
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-gray-800">{{ selected_ms[:60] }}...</h3>
+          <div class="text-sm text-gray-500">{{ selected_ms }}</div>
+        </div>
+        <div class="flex gap-2">
+          <a href="/manuscripts/{{ selected_ms }}/edit" class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg transition">Edit</a>
+          <a href="/recommend?ms={{ selected_ms }}" class="px-3 py-1 text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg transition">Journal Recs</a>
+          <a href="/submissions?ms={{ selected_ms }}" class="px-3 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition">Submissions</a>
+        </div>
+      </div>
+      
+      <!-- Abstract preview -->
+      <div class="p-3 bg-gray-50 rounded-lg text-sm text-gray-600 mb-4">
+        <div class="font-medium mb-1">Abstract:</div>
+        <p class="text-xs leading-relaxed">{{ selected_ms[:200] }}...</p>
+      </div>
+      
+      <!-- Quick actions -->
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="linkPaper('{{ selected_ms }}')" class="px-3 py-1 text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg transition">
+          + Link Paper
+        </button>
+        <button onclick="searchForRelated('{{ selected_ms }}')" class="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition">
+          Find Related Papers
+        </button>
+      </div>
+    </div>
+    
+    <!-- Linked papers section -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <h3 class="font-semibold text-gray-700 mb-3">Linked Papers to Your Work</h3>
+      <div id="linked-papers">
+        <div class="text-sm text-gray-400 italic p-4">
+          Click "+ Link Paper" to connect papers from your research collection to this manuscript.
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <!-- Empty state when no manuscript selected -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
+      <div class="text-4xl mb-4">🔬</div>
+      <h3 class="text-xl font-semibold text-gray-700 mb-2">Welcome to Your Research Lab</h3>
+      <p class="text-gray-500 mb-6">
+        Select a manuscript to view its context, search literature, and link papers.
+      </p>
+      <a href="/manuscripts" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition">
+        View Manuscripts →
+      </a>
+    </div>
+    {% endif %}
+    
+  </div>
+</div>
+
+<!-- Search Results Modal (hidden by default) -->
+<div id="rag-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-8">
+  <div class="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+    <div class="flex justify-between items-center mb-4">
+      <h4 class="font-bold text-gray-800">Search Results</h4>
+      <button onclick="closeRagModal()" class="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
+    </div>
+    <div id="rag-modal-results" class="space-y-3">
+      <!-- Results injected here -->
+    </div>
+  </div>
+</div>
+
+<script src="/static/lab.js"></script>
+{% endblock %}

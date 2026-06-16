@@ -1,0 +1,48 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ── Virtual environments (rebuild with setup_mac.sh) ─────────────────────────
+.venv/
+venv/
+env/
+
+# ── Runtime data — never commit (user papers, indexes, notes, DBs) ───────────
+.data/
+Local_Rag/papers/*
+!Local_Rag/papers/.gitkeep
+Local_Rag/output/*
+!Local_Rag/output/.gitkeep
+Local_Rag/rag/data/*
+!Local_Rag/rag/data/.gitkeep
+Local_Rag/rag/notes/*
+!Local_Rag/rag/notes/.gitkeep
+Local_Rag/rag/logs/*
+!Local_Rag/rag/logs/.gitkeep
+
+# Databases / vectors / model weights / backups anywhere
+*.db
+*.sqlite
+*.sqlite-*
+*.pre_*
+*.bak
+*.bak_*
+*.gguf
+*.pt
+*.bin
+
+# ── Caches ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── OS / editor cruft ────────────────────────────────────────────────────────
+.DS_Store
+._*
+*.swp
+.idea/
+.vscode/

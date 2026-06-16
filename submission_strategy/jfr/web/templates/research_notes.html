@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Notes{% endblock %}
+{% block heading %}Research Lab — Notes{% endblock %}
+{% block header_actions %}
+  <button onclick="newNote()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+    New note
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-12 gap-5 h-[calc(100vh-13rem)]">
+
+  <!-- Note list -->
+  <aside class="col-span-4 tile tile-flush flex flex-col overflow-hidden">
+    <div class="px-4 py-3 border-b border-ink-100 dark:border-ink-800 flex items-center justify-between">
+      <h3 class="font-semibold text-sm">All notes</h3>
+      <span id="notes-count" class="text-[11px] text-ink-400 font-mono">—</span>
+    </div>
+    <!-- Prominent New note CTA -->
+    <button onclick="newNote()"
+      class="m-3 mb-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-[0_4px_12px_-4px_rgba(94,107,240,0.45)]">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      New note
+    </button>
+    <div id="notes-list" class="flex-1 overflow-y-auto scroll-thin p-2 space-y-1.5">
+      <div class="text-ink-400 text-center py-8 text-xs">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- Reader / editor -->
+  <section class="col-span-8 bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl shadow-soft dark:shadow-soft-dark flex flex-col overflow-hidden">
+    <div id="reader-header" class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between" style="display:none">
+      <div>
+        <h3 id="reader-title" class="font-semibold text-sm"></h3>
+        <div id="reader-meta" class="text-[11px] text-ink-400 mt-0.5"></div>
+      </div>
+      <div class="flex gap-2">
+        <button id="reader-edit" onclick="toggleEdit()" class="text-xs bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-3 py-1.5 rounded-md">Edit</button>
+        <button onclick="deleteCurrent()" class="text-xs bg-ink-100 dark:bg-ink-800 hover:bg-rose-100 dark:hover:bg-rose-950 hover:text-rose-700 text-ink-700 dark:text-ink-200 px-3 py-1.5 rounded-md">Delete</button>
+      </div>
+    </div>
+    <div id="reader-view" class="flex-1 overflow-y-auto scroll-thin px-8 py-6" style="display:none">
+      <div id="reader-content" class="md-body text-sm leading-relaxed text-ink-700 dark:text-ink-200 max-w-3xl"></div>
+    </div>
+    <div id="reader-edit-wrap" class="flex-1 flex flex-col overflow-hidden" style="display:none">
+      <input id="edit-title" placeholder="Note title"
+             class="w-full bg-transparent border-b border-ink-200 dark:border-ink-800 px-6 py-3 text-sm font-semibold outline-none">
+      <textarea id="edit-content" placeholder="Markdown…"
+                class="flex-1 bg-transparent font-mono text-sm px-6 py-3 outline-none resize-none"></textarea>
+      <div class="border-t border-ink-200 dark:border-ink-800 px-5 py-2.5 flex items-center gap-2">
+        <button onclick="saveNote()" class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-4 py-1.5 rounded-md">Save as new note</button>
+        <button onclick="cancelEdit()" class="text-ink-500 dark:text-ink-300 text-xs px-3 py-1.5">Cancel</button>
+        <span class="ml-auto text-[10px] text-ink-400">Saving creates a new file in <span class="font-mono">notes/</span>. Edits to existing notes overwrite by re-creating.</span>
+      </div>
+    </div>
+    <div id="reader-empty" class="flex-1 flex flex-col items-center justify-center text-ink-400 dark:text-ink-500 text-sm p-8">
+      <svg class="w-16 h-16 opacity-30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+      </svg>
+      <div class="text-base font-medium mb-1 text-ink-600 dark:text-ink-300">No note selected</div>
+      <div class="text-xs mb-5">Pick a note on the left, or start a new one — markdown is supported.</div>
+      <button onclick="newNote()"
+        class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Start a note
+      </button>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script>
+let currentNoteId = null;
+let currentRawContent = '';
+let mdReady = false;
+try { marked.use({ gfm: true, breaks: true }); mdReady = true; } catch (e) {}
+
+document.addEventListener('DOMContentLoaded', loadNotes);
+
+async function loadNotes() {
+  const list = document.getElementById('notes-list');
+  try {
+    const r = await fetch('/api/rag/notes');
+    const notes = await r.json();
+    document.getElementById('notes-count').textContent = notes.length;
+    if (!notes.length) {
+      list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No notes yet.</div>';
+      return;
+    }
+    list.innerHTML = notes.map(n => `
+      <button onclick="openNote('${escapeJs(n.id)}')"
+              class="w-full text-left px-3 py-2.5 rounded-lg border ${n.id === currentNoteId ? 'border-brand-400 bg-brand-50 dark:bg-brand-950' : 'border-transparent hover:border-ink-200 dark:hover:border-ink-700 hover:bg-ink-50 dark:hover:bg-ink-950'} transition">
+        <div class="font-medium text-xs truncate">${escapeHtml(n.title)}</div>
+        <div class="text-[10px] text-ink-400 mt-0.5 truncate">${new Date(n.modified * 1000).toLocaleString()}</div>
+        <div class="text-[11px] text-ink-500 dark:text-ink-400 mt-1 line-clamp-2">${escapeHtml(n.preview)}</div>
+      </button>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="text-rose-500 text-xs">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function openNote(id) {
+  currentNoteId = id;
+  loadNotes(); // re-highlight
+  try {
+    const r = await fetch('/api/rag/notes/' + encodeURIComponent(id));
+    const d = await r.json();
+    currentRawContent = d.content || '';
+    const {title, body} = parseFrontmatter(currentRawContent);
+    showReader(title || id, body);
+  } catch (e) {
+    showReader('Failed to load', `<div class="text-rose-500">${escapeHtml(e.message)}</div>`);
+  }
+}
+
+function parseFrontmatter(raw) {
+  // YAML frontmatter ---\n...\n--- at top.
+  let title = '', body = raw, meta = '';
+  const m = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (m) {
+    const fm = m[1];
+    body = m[2];
+    const tm = fm.match(/^title:\s*(.+)$/m);
+    if (tm) title = tm[1].trim().replace(/^["']|["']$/g, '');
+    const dm = fm.match(/^date:\s*(.+)$/m);
+    const am = fm.match(/^agent:\s*(.+)$/m);
+    const parts = [];
+    if (am && am[1].trim()) parts.push('agent: ' + am[1].trim());
+    if (dm) parts.push(dm[1].trim());
+    meta = parts.join(' · ');
+  }
+  // Strip a redundant top-level # heading if it duplicates the title
+  const h1 = body.match(/^#\s+(.+?)\n/);
+  if (h1 && title && h1[1].trim() === title.trim()) {
+    body = body.slice(h1[0].length);
+  }
+  return {title, body, meta};
+}
+
+function showReader(title, content) {
+  document.getElementById('reader-empty').style.display = 'none';
+  document.getElementById('reader-edit-wrap').style.display = 'none';
+  document.getElementById('reader-view').style.display = 'block';
+  document.getElementById('reader-header').style.display = 'flex';
+  document.getElementById('reader-title').textContent = title;
+  const {meta} = parseFrontmatter(currentRawContent);
+  document.getElementById('reader-meta').textContent = meta;
+  document.getElementById('reader-edit').textContent = 'Edit';
+  const html = mdReady ? marked.parse(content) : `<pre>${escapeHtml(content)}</pre>`;
+  document.getElementById('reader-content').innerHTML = html;
+}
+
+function toggleEdit() {
+  const editingNow = document.getElementById('reader-edit-wrap').style.display !== 'none';
+  if (editingNow) { showReader(document.getElementById('reader-title').textContent, parseFrontmatter(currentRawContent).body); return; }
+  const {title, body} = parseFrontmatter(currentRawContent);
+  document.getElementById('reader-view').style.display = 'none';
+  document.getElementById('reader-edit-wrap').style.display = 'flex';
+  document.getElementById('edit-title').value = title || currentNoteId || '';
+  document.getElementById('edit-content').value = body;
+  document.getElementById('reader-edit').textContent = 'Preview';
+}
+
+function cancelEdit() { toggleEdit(); }
+
+async function saveNote() {
+  const title = document.getElementById('edit-title').value.trim() || 'Untitled';
+  const content = document.getElementById('edit-content').value;
+  try {
+    const r = await fetch('/api/rag/notes', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, content, agent: ''})
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    toast('Saved as ' + d.id);
+    await loadNotes();
+    openNote(d.id);
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+function newNote() {
+  currentNoteId = null;
+  currentRawContent = '';
+  document.getElementById('reader-view').style.display = 'none';
+  document.getElementById('reader-empty').style.display = 'none';
+  document.getElementById('reader-header').style.display = 'flex';
+  document.getElementById('reader-title').textContent = 'New note';
+  document.getElementById('reader-meta').textContent = '';
+  document.getElementById('reader-edit-wrap').style.display = 'flex';
+  document.getElementById('edit-title').value = '';
+  document.getElementById('edit-content').value = '';
+  document.getElementById('reader-edit').textContent = 'Preview';
+  document.getElementById('edit-title').focus();
+}
+
+async function deleteCurrent() {
+  if (!currentNoteId) return;
+  if (!confirm('Delete this note?')) return;
+  await fetch('/api/rag/notes/' + encodeURIComponent(currentNoteId), {method: 'DELETE'});
+  currentNoteId = null;
+  document.getElementById('reader-view').style.display = 'none';
+  document.getElementById('reader-edit-wrap').style.display = 'none';
+  document.getElementById('reader-header').style.display = 'none';
+  document.getElementById('reader-empty').style.display = 'flex';
+  loadNotes();
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 right-4 bg-ink-800 dark:bg-ink-100 text-white dark:text-ink-900 px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeJs(s)   { return String(s).replace(/'/g, "\\'"); }
+</script>
+{% endblock %}

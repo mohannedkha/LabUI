@@ -1,0 +1,602 @@
+{% extends "base.html" %}
+{% block title %}Chat with Papers{% endblock %}
+{% block heading %}Research Lab — Chat with Papers{% endblock %}
+{% block header_actions %}
+  <button onclick="newChat()"
+          class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+    New chat
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-12 gap-5 h-[calc(100vh-13rem)]">
+
+  <!-- ── Session sidebar ────────────────────────────────────── -->
+  <aside class="col-span-3 bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark overflow-hidden flex flex-col">
+    <div class="px-4 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between">
+      <h3 class="font-semibold text-sm">Sessions</h3>
+      <span id="session-count" class="text-[11px] text-ink-400 font-mono">—</span>
+    </div>
+    <div id="session-list" class="flex-1 overflow-y-auto scroll-thin p-2 space-y-1 text-sm">
+      <div class="text-ink-400 text-center py-8 text-xs">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- ── Chat area ──────────────────────────────────────────── -->
+  <section class="col-span-6 bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark flex flex-col overflow-hidden">
+    <!-- Agent header -->
+    <div class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center gap-3">
+      <select id="agent-select"
+              class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <option value="">Loading agents…</option>
+      </select>
+      <select id="manuscript-select"
+              class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <option value="">No manuscript context</option>
+      </select>
+      <div class="flex-1"></div>
+      <span id="cite-status" class="text-[11px] text-ink-400"></span>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages" class="flex-1 overflow-y-auto scroll-thin px-6 py-5 space-y-5">
+      <div id="empty-state" class="text-center text-ink-400 dark:text-ink-500 py-16">
+        <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+        </svg>
+        <div class="text-sm">Ask anything about your <span class="paper-count"></span>indexed papers.</div>
+        <div class="text-xs mt-1">Answers are grounded in retrieved passages and cite paper IDs.</div>
+        <div id="example-queries" class="mt-6 flex flex-wrap gap-2 justify-center max-w-xl mx-auto"></div>
+      </div>
+    </div>
+
+    <!-- Composer -->
+    <div class="border-t border-ink-200 dark:border-ink-800 p-3">
+      <div class="flex items-end gap-2 bg-ink-50 dark:bg-ink-800 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-brand-400">
+        <textarea id="prompt" rows="1" placeholder="Ask the literature… (Enter to send, Shift+Enter for newline)"
+                  oninput="autoResize(this)" onkeydown="handleKey(event)"
+                  class="flex-1 bg-transparent resize-none outline-none text-sm leading-relaxed max-h-40 py-1"></textarea>
+        <button id="send-btn" onclick="sendQuery()"
+                class="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        </button>
+      </div>
+      <div class="text-[10px] text-ink-400 mt-1.5 px-2">
+        Generator: <span class="font-mono" data-gen-label>gemma3:12b</span>
+        <span class="text-ink-300 ml-1">(switch in sidebar ↘)</span>
+        · Retrieval: SPECTER2 + BGE reranker
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Sources panel ──────────────────────────────────────── -->
+  <aside class="col-span-3 bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark overflow-hidden flex flex-col">
+    <div class="border-b border-ink-200 dark:border-ink-800">
+      <h3 class="px-4 pt-3 pb-1 font-semibold text-sm">Sources</h3>
+      <div class="flex gap-0 px-2">
+        <button onclick="showSourceTab('papers')" id="tab-papers"
+                class="px-3 py-2 text-xs font-medium border-b-2 transition border-brand-500 text-brand-700 dark:text-brand-300">
+          Papers <span id="papers-count" class="text-[10px] text-ink-400 ml-0.5">—</span>
+        </button>
+        <button onclick="showSourceTab('web')" id="tab-web"
+                class="px-3 py-2 text-xs font-medium border-b-2 transition border-transparent text-ink-500 dark:text-ink-400">
+          Web <span id="web-count" class="text-[10px] text-ink-400 ml-0.5">—</span>
+        </button>
+      </div>
+    </div>
+    <div id="sources-list" class="flex-1 overflow-y-auto scroll-thin p-3 space-y-2 text-sm">
+      <div class="text-ink-400 text-center py-8 text-xs">Sources will appear here when you ask a question.</div>
+    </div>
+    <div id="web-list" class="flex-1 overflow-y-auto scroll-thin p-3 space-y-2 text-sm" style="display:none">
+      <div class="text-ink-400 text-center py-8 text-xs">Web results will appear here.</div>
+    </div>
+  </aside>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────
+let currentSessionId = null;
+let currentAgent = 'chat';
+let currentManuscriptId = '';
+let isStreaming = false;
+let lastChunks = [];
+
+// ── Indexed paper count (live, from /api/rag/status) ──────────
+let paperCount = null;
+function paperCountPrefix() {
+  return (paperCount && paperCount > 0) ? (paperCount.toLocaleString() + ' ') : '';
+}
+function applyPaperCount() {
+  document.querySelectorAll('.paper-count').forEach(el => { el.textContent = paperCountPrefix(); });
+}
+async function loadPaperCount() {
+  try {
+    const r = await fetch('/api/rag/status');
+    const s = await r.json();
+    paperCount = s.papers || 0;
+  } catch (e) { paperCount = null; }
+  applyPaperCount();
+}
+
+// ── Init ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadAgents();
+  loadSessions();
+  loadManuscripts();
+  loadPaperCount();
+  renderExamples();
+  // Seed query via ?q=… (used by the graph "Ask LLM" action)
+  const seed = new URLSearchParams(location.search).get('q');
+  if (seed) {
+    document.getElementById('prompt').value = seed;
+    autoResize(document.getElementById('prompt'));
+    // Defer one tick so the empty state element is in the DOM.
+    setTimeout(() => sendQuery(), 30);
+  }
+});
+
+// ── Agents ────────────────────────────────────────────────────
+async function loadAgents() {
+  try {
+    const r = await fetch('/api/rag/agents');
+    const agents = await r.json();
+    const sel = document.getElementById('agent-select');
+    sel.innerHTML = '';
+    for (const [id, cfg] of Object.entries(agents)) {
+      const o = document.createElement('option');
+      o.value = id; o.textContent = (cfg.icon || '') + ' ' + (cfg.name || id);
+      if (id === 'chat') o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.onchange = () => { currentAgent = sel.value; };
+  } catch (e) {
+    document.getElementById('agent-select').innerHTML = '<option>chat</option>';
+  }
+}
+
+// ── Manuscripts ───────────────────────────────────────────────
+async function loadManuscripts() {
+  try {
+    const r = await fetch('/api/manuscripts');
+    const list = await r.json();
+    const sel = document.getElementById('manuscript-select');
+    list.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = m.title.slice(0, 50);
+      sel.appendChild(o);
+    });
+    sel.onchange = () => { currentManuscriptId = sel.value; };
+  } catch (e) { /* ok */ }
+}
+
+// ── Sessions ──────────────────────────────────────────────────
+async function loadSessions() {
+  try {
+    const r = await fetch('/api/rag/sessions');
+    const sessions = await r.json();
+    const list = document.getElementById('session-list');
+    const count = document.getElementById('session-count');
+    count.textContent = sessions.length;
+    if (!sessions.length) {
+      list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No sessions yet</div>'; return;
+    }
+    list.innerHTML = '';
+    sessions.forEach(s => {
+      const sid = s.session_id || s.id;
+      const row = document.createElement('button');
+      row.className = 'w-full text-left px-3 py-2 rounded-lg hover:bg-ink-50 dark:hover:bg-ink-800 text-xs group flex items-center justify-between gap-2';
+      if (sid === currentSessionId) row.classList.add('bg-brand-50','dark:bg-brand-950');
+      row.innerHTML = `
+        <span class="truncate flex-1">${escapeHtml(s.title || 'Untitled')}</span>
+        <span class="opacity-0 group-hover:opacity-100 text-ink-400 hover:text-red-500" onclick="event.stopPropagation(); deleteSession('${escapeJs(sid)}')" title="Delete session">✕</span>
+      `;
+      row.onclick = () => loadSession(sid);
+      list.appendChild(row);
+    });
+  } catch (e) { /* ok */ }
+}
+
+async function loadSession(id) {
+  if (!id) return;
+  if (isStreaming) { return; }
+  try {
+    const r = await fetch('/api/rag/sessions/' + encodeURIComponent(id));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    currentSessionId = id;
+    lastChunks = [];
+    const msgs = document.getElementById('messages');
+    msgs.innerHTML = '';
+    document.getElementById('sources-list').innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">Sources from this turn aren\'t cached.<br/>Ask a new question to see retrieved papers.</div>';
+    document.getElementById('web-list').innerHTML    = '<div class="text-ink-400 text-center py-8 text-xs">Web results aren\'t cached.</div>';
+    document.getElementById('papers-count').textContent = '—';
+    document.getElementById('web-count').textContent    = '—';
+    document.getElementById('cite-status').textContent  = '';
+    showSourceTab('papers');
+    let lastUser = '';
+    (data.turns || []).forEach(t => {
+      const el = addMessage(t.role, t.content, t.role === 'assistant');
+      if (t.role === 'user') lastUser = t.content;
+      else if (t.role === 'assistant') addAnswerActions(el, lastUser || data.title || '', t.content);
+    });
+    loadSessions();
+  } catch (e) {
+    toast('Failed to load session: ' + e.message);
+  }
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this session?')) return;
+  await fetch('/api/rag/sessions/' + id, { method: 'DELETE' });
+  if (id === currentSessionId) newChat();
+  loadSessions();
+}
+
+function newChat() {
+  currentSessionId = null;
+  lastChunks = [];
+  document.getElementById('messages').innerHTML = `
+    <div id="empty-state" class="text-center text-ink-400 dark:text-ink-500 py-16">
+      <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+      </svg>
+      <div class="text-sm">Ask anything about your ${paperCountPrefix()}indexed papers.</div>
+      <div id="example-queries" class="mt-6 flex flex-wrap gap-2 justify-center max-w-xl mx-auto"></div>
+    </div>`;
+  document.getElementById('sources-list').innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">Sources will appear here when you ask a question.</div>';
+  document.getElementById('web-list').innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">Web results will appear here.</div>';
+  document.getElementById('papers-count').textContent = '—';
+  document.getElementById('web-count').textContent = '—';
+  showSourceTab('papers');
+  renderExamples();
+}
+
+function showSourceTab(tab) {
+  const papersOn = tab === 'papers';
+  document.getElementById('sources-list').style.display = papersOn ? 'block' : 'none';
+  document.getElementById('web-list').style.display    = papersOn ? 'none' : 'block';
+  const tp = document.getElementById('tab-papers');
+  const tw = document.getElementById('tab-web');
+  tp.className = 'px-3 py-2 text-xs font-medium border-b-2 transition ' +
+    (papersOn ? 'border-brand-500 text-brand-700 dark:text-brand-300' : 'border-transparent text-ink-500 dark:text-ink-400');
+  tw.className = 'px-3 py-2 text-xs font-medium border-b-2 transition ' +
+    (papersOn ? 'border-transparent text-ink-500 dark:text-ink-400' : 'border-brand-500 text-brand-700 dark:text-brand-300');
+}
+
+// ── Examples ──────────────────────────────────────────────────
+function renderExamples() {
+  const examples = [
+    'What stabilizes bulk nanobubbles?',
+    'Compare surfactant systems for foam EOR.',
+    'Recent advances in nanobubble characterization?',
+    'How is zeta potential used in nanobubble studies?',
+  ];
+  const wrap = document.getElementById('example-queries');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  examples.forEach(q => {
+    const b = document.createElement('button');
+    b.className = 'text-xs px-3 py-1.5 bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 rounded-full transition';
+    b.textContent = q;
+    b.onclick = () => { document.getElementById('prompt').value = q; sendQuery(); };
+    wrap.appendChild(b);
+  });
+}
+
+// ── Composer ──────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+}
+
+// ── Send + stream ─────────────────────────────────────────────
+async function sendQuery() {
+  if (isStreaming) return;
+  const input = document.getElementById('prompt');
+  const query = input.value.trim();
+  if (!query) return;
+
+  // Clear empty state
+  const es = document.getElementById('empty-state');
+  if (es) es.remove();
+
+  addMessage('user', query, false);
+  input.value = ''; autoResize(input);
+  document.getElementById('cite-status').textContent = '';
+
+  const assistantEl = addMessage('assistant', '', true, true);
+
+  isStreaming = true;
+  document.getElementById('send-btn').disabled = true;
+
+  const body = {
+    query,
+    agent: currentAgent,
+    session_id: currentSessionId,
+    top_k: 10,
+    gen_model: (typeof getActiveModel === 'function' ? getActiveModel() : null) || undefined,
+  };
+
+  let collected = '';
+  try {
+    await streamSSE('/api/rag/query', body, {
+      session: (d) => { currentSessionId = d.session_id; if (d.is_new) loadSessions(); },
+      papers: (d) => { lastChunks = d.papers || []; renderSources(d.papers || []); },
+      token: (d) => {
+        collected += d.text;
+        assistantEl.querySelector('.md-body').innerHTML = renderMd(collected);
+        scrollMessages();
+      },
+      done: (d) => {
+        // Server sends the cleaned, reference-appended final text in d.answer;
+        // fall back to the streamed text if absent.
+        if (d.answer) collected = d.answer;
+        assistantEl.querySelector('.md-body').innerHTML = renderMd(collected);
+        const status = document.getElementById('cite-status');
+        status.textContent = d.citations_ok ? '✓ citations verified' : '⚠ unverified citations';
+        status.className = 'text-[11px] ' + (d.citations_ok ? 'text-emerald-500' : 'text-amber-500');
+        addAnswerActions(assistantEl, query, collected);
+      },
+      memories: (d) => { /* could show in a memories drawer */ },
+      web_results: (d) => { renderWeb(Array.isArray(d) ? d : (d.results || [])); },
+      error: (d) => {
+        assistantEl.querySelector('.md-body').innerHTML = `<div class="text-red-500 text-sm">Error: ${escapeHtml(d.message)}</div>`;
+      },
+    });
+  } catch (e) {
+    assistantEl.querySelector('.md-body').innerHTML = `<div class="text-red-500 text-sm">Network error: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    isStreaming = false;
+    document.getElementById('send-btn').disabled = false;
+    assistantEl.querySelector('.streaming-dot')?.remove();
+  }
+}
+
+async function streamSSE(url, body, handlers) {
+  const resp = await fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error(resp.statusText);
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', curEvent = null;
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream: true});
+    const lines = buf.split('\n'); buf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith('event: '))      curEvent = line.slice(7).trim();
+      else if (line.startsWith('data: ') && curEvent) {
+        try { if (handlers[curEvent]) handlers[curEvent](JSON.parse(line.slice(6))); } catch (e) {}
+        curEvent = null;
+      }
+    }
+  }
+}
+
+// ── Messages ──────────────────────────────────────────────────
+function addMessage(role, content, isAssistant=false, streaming=false) {
+  const msgs = document.getElementById('messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex gap-3 ' + (role === 'user' ? 'flex-row-reverse' : '');
+
+  const avatar = document.createElement('div');
+  avatar.className = 'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold flex-shrink-0 ' +
+    (role === 'user'
+      ? 'bg-ink-200 dark:bg-ink-700 text-ink-700 dark:text-ink-200'
+      : 'bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300');
+  avatar.textContent = role === 'user' ? 'You' : 'AI';
+  wrap.appendChild(avatar);
+
+  const bubble = document.createElement('div');
+  bubble.className = role === 'user'
+    ? 'bg-brand-50 dark:bg-brand-950 border border-brand-200 dark:border-brand-900 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm max-w-[80%]'
+    : 'flex-1 max-w-[85%]';
+  if (role === 'user') {
+    bubble.textContent = content;
+  } else {
+    const body = document.createElement('div');
+    body.className = 'md-body text-sm leading-relaxed text-ink-700 dark:text-ink-200';
+    body.innerHTML = renderMd(content);
+    bubble.appendChild(body);
+    if (streaming) {
+      const dot = document.createElement('span');
+      dot.className = 'streaming-dot inline-block w-2 h-2 bg-brand-500 rounded-full ml-1 animate-pulse';
+      bubble.appendChild(dot);
+    }
+  }
+  wrap.appendChild(bubble);
+
+  msgs.appendChild(wrap);
+  scrollMessages();
+  return wrap;
+}
+
+function scrollMessages() {
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── Answer actions (Save to notes / Copy) ─────────────────────
+function addAnswerActions(assistantEl, query, text) {
+  if (!assistantEl || !text) return;
+  const bubble = assistantEl.querySelector('.md-body')?.parentElement;
+  if (!bubble || bubble.querySelector('.answer-actions')) return;
+  const bar = document.createElement('div');
+  bar.className = 'answer-actions mt-2 flex items-center gap-2';
+
+  const save = document.createElement('button');
+  save.className = 'text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2.5 py-1 rounded-md';
+  save.textContent = '🗒 Save to notes';
+  save.onclick = () => saveAnswerToNotes(query, text, save);
+  bar.appendChild(save);
+
+  const copy = document.createElement('button');
+  copy.className = 'text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2.5 py-1 rounded-md';
+  copy.textContent = 'Copy';
+  copy.onclick = () => { try { navigator.clipboard.writeText(text); toast('Copied'); } catch (e) { toast('Copy unavailable'); } };
+  bar.appendChild(copy);
+
+  bubble.appendChild(bar);
+}
+
+async function saveAnswerToNotes(query, content, btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const title = (query || '').trim().slice(0, 80) || 'Chat answer';
+  try {
+    const r = await fetch('/api/rag/notes', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, content, agent: currentAgent})
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    toast('Saved to notes: ' + d.id);
+    if (btn) btn.textContent = '✓ Saved';
+  } catch (e) {
+    toast('Save failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
+}
+
+// ── Sources ───────────────────────────────────────────────────
+function renderSources(papers) {
+  const list = document.getElementById('sources-list');
+  document.getElementById('papers-count').textContent = papers.length;
+  if (!papers.length) {
+    list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No sources yet.</div>'; return;
+  }
+  const hasMs = !!currentManuscriptId;
+  list.innerHTML = '';
+  papers.forEach((p, i) => {
+    const card = document.createElement('div');
+    card.className = 'border border-ink-200 dark:border-ink-800 rounded-lg p-2.5 hover:border-brand-400 dark:hover:border-brand-700 transition';
+    card.innerHTML = `
+      <div class="flex items-start gap-2 mb-1 cursor-pointer" onclick="openPaper('${escapeJs(p.paper_id)}')">
+        <span class="text-[10px] font-mono bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300 px-1.5 py-0.5 rounded">${p.n ?? (i+1)}</span>
+        <span class="font-medium text-xs leading-snug flex-1">${escapeHtml((p.title || p.paper_id).slice(0, 80))}</span>
+      </div>
+      ${p.doi ? `<a href="https://doi.org/${escapeHtml(p.doi)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-[10px] text-brand-600 dark:text-brand-300 hover:underline ml-7 font-mono truncate block">doi:${escapeHtml(p.doi)}</a>` : `<div class="text-[10px] text-ink-400 ml-7 font-mono truncate">${escapeHtml(p.paper_id)}</div>`}
+      <div class="text-[10px] text-ink-500 ml-7 mt-0.5">${escapeHtml(p.section_name || '')} · p. ${p.page_start || '—'}${p.page_end && p.page_end !== p.page_start ? '–' + p.page_end : ''}</div>
+      <div class="ml-7 mt-1.5 flex items-center gap-1.5">
+        <button onclick="linkSource('${escapeJs(p.paper_id)}')"
+                ${hasMs ? '' : 'disabled'}
+                title="${hasMs ? 'Link to selected manuscript' : 'Select a manuscript above to enable linking'}"
+                class="text-[10px] px-2 py-0.5 rounded ${hasMs ? 'bg-brand-600 hover:bg-brand-700 text-white' : 'bg-ink-100 dark:bg-ink-800 text-ink-400 cursor-not-allowed'}">
+          + Link to manuscript
+        </button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderWeb(items) {
+  const list = document.getElementById('web-list');
+  const arr = items || [];
+  document.getElementById('web-count').textContent = arr.length;
+  if (!arr.length) {
+    list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No web results for this query.</div>'; return;
+  }
+  list.innerHTML = arr.map((w, i) => `
+    <article class="border border-ink-200 dark:border-ink-800 rounded-lg p-2.5 hover:border-brand-400 dark:hover:border-brand-700 transition">
+      <div class="flex items-start gap-2 mb-1">
+        <span class="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded">w${w.index ?? (i+1)}</span>
+        <a href="${escapeAttr(w.url || '#')}" target="_blank" rel="noopener"
+           class="font-medium text-xs leading-snug flex-1 hover:underline text-ink-800 dark:text-ink-100">
+          ${escapeHtml((w.title || w.url || '').slice(0, 110))}
+        </a>
+      </div>
+      ${w.url ? `<div class="text-[10px] text-ink-400 ml-7 truncate">${escapeHtml(domainOf(w.url))}</div>` : ''}
+      ${w.snippet ? `<div class="text-[11px] text-ink-600 dark:text-ink-300 ml-7 mt-1 leading-relaxed line-clamp-3">${escapeHtml(w.snippet)}</div>` : ''}
+    </article>
+  `).join('');
+}
+
+function domainOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; }
+}
+function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+
+async function linkSource(paperId) {
+  if (!currentManuscriptId) { alert('Pick a manuscript first.'); return; }
+  const fd = new FormData();
+  fd.set('ms_id', currentManuscriptId);
+  fd.set('paper_id', paperId);
+  fd.set('link_type', 'related');
+  fd.set('note', 'From chat session ' + (currentSessionId || ''));
+  try {
+    const r = await fetch('/api/rag/links', {method: 'POST', body: fd});
+    const d = await r.json();
+    if (d.success) {
+      toast('Linked ' + paperId.slice(0, 24) + ' to manuscript');
+    } else {
+      alert(d.error || 'Link failed');
+    }
+  } catch (e) { alert('Link failed: ' + e.message); }
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 right-4 bg-ink-800 dark:bg-ink-100 text-white dark:text-ink-900 px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+async function openPaper(paperId) {
+  try {
+    const r = await fetch('/api/rag/paper?id=' + encodeURIComponent(paperId));
+    const d = await r.json();
+    const w = window.open('', '_blank');
+    w.document.write(`
+      <html><head><title>${escapeHtml(d.title || paperId)}</title>
+      <style>body{font-family:Inter,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;color:#1c2230;line-height:1.6}
+      h1{font-size:20px} h2{font-size:14px;color:#5a6478;font-weight:600} .meta{color:#8b94a6;font-size:13px}
+      .toc{margin:14px 0;padding:14px;background:#f7f8fa;border-radius:8px;font-size:13px}
+      a{color:#5e6bf0}</style></head><body>
+      <h1>${escapeHtml(d.title || paperId)}</h1>
+      <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
+      ${d.pdf_available ? `<p><a href="/api/rag/pdf?id=${encodeURIComponent(paperId)}" target="_blank">Open PDF ↗</a></p>` : ''}
+      <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
+      ${d.summary ? `<h2>Summary</h2><pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(d.summary)}</pre>` : ''}
+      </body></html>`);
+  } catch (e) { alert('Failed to load paper: ' + e.message); }
+}
+
+// ── Markdown ──────────────────────────────────────────────────
+let mdReady = false;
+try {
+  marked.use({ gfm: true, breaks: true });
+  mdReady = true;
+} catch (e) {}
+
+function renderMd(md) {
+  let html = md;
+  try { if (mdReady) html = marked.parse(md); } catch (e) {}
+  // Citation chips [paper_id]
+  html = html.replace(/\[([a-zA-Z][\w\-]+)\]/g, (m, id) => {
+    const paper = lastChunks.find(p => p.paper_id === id);
+    if (!paper) return m;
+    return `<span class="cite-chip" onclick="openPaper('${id.replace(/'/g, "\\'")}')" title="${escapeHtml(paper.title || id)}">${id.slice(0, 18)}</span>`;
+  });
+  return html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeJs(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+</script>
+{% endblock %}

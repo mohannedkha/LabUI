@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Edit Manuscript{% endblock %}
+{% block heading %}Edit Manuscript{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-12 gap-5">
+
+  <!-- ── Edit form (left, 7/12) ────────────────────────────── -->
+  <div class="col-span-12 xl:col-span-7">
+    <form method="POST" action="/manuscripts/{{ ms.id }}/edit"
+          class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-6 space-y-5">
+      {% if error %}
+      <div class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-lg px-4 py-3 text-sm">{{ error }}</div>
+      {% endif %}
+
+      <div>
+        <label class="block text-[11px] font-medium text-ink-400 mb-1 uppercase tracking-wider">Manuscript ID</label>
+        <p class="font-mono text-sm text-ink-500" id="ms-id">{{ ms.id }}</p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Title <span class="text-red-500">*</span></label>
+        <input name="title" type="text" required value="{{ ms.title }}"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Abstract <span class="text-red-500">*</span></label>
+        <textarea id="ms-abstract" name="abstract" required rows="8"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-y">{{ ms.abstract }}</textarea>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Principal Claim <span class="text-red-500">*</span></label>
+        <input id="ms-claim" name="principal_claim" type="text" required value="{{ ms.principal_claim }}"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <p class="text-xs text-ink-400 mt-1">One declarative sentence stating what the paper proves.</p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Techniques</label>
+        {% set techs = ms.techniques_json | from_json %}
+        <input name="techniques" type="text" value="{{ techs | join(', ') }}"
+               placeholder="NTA, zeta potential, XDLVO, molecular dynamics"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <p class="text-xs text-ink-400 mt-1">Comma-separated.</p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">BibTeX key <span class="text-ink-400 font-normal">(optional)</span></label>
+        <input name="bibtex_key" type="text" value="{{ ms.bibtex_key or '' }}"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg">Save Changes</button>
+        <a href="/manuscripts" class="text-ink-500 hover:text-ink-700 dark:hover:text-ink-200 text-sm font-medium px-5 py-2 rounded-lg border border-ink-200 dark:border-ink-700">Cancel</a>
+        <a href="/recommend?ms={{ ms.id }}" class="text-brand-600 dark:text-brand-300 hover:underline text-sm font-medium px-5 py-2 rounded-lg">Recommend journals →</a>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── RAG panel (right, 5/12) ───────────────────────────── -->
+  <div class="col-span-12 xl:col-span-5 space-y-5">
+
+    <!-- Linked papers -->
+    <section class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark">
+      <header class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between">
+        <h3 class="font-semibold text-sm">Linked papers</h3>
+        <span class="text-[11px] text-ink-400 font-mono" id="linked-count">—</span>
+      </header>
+      <div id="linked-list" class="p-3 space-y-2 max-h-96 overflow-y-auto scroll-thin">
+        <div class="text-ink-400 text-center py-6 text-xs">Loading…</div>
+      </div>
+    </section>
+
+    <!-- Find supporting papers -->
+    <section class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark">
+      <header class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between">
+        <h3 class="font-semibold text-sm">Find supporting papers</h3>
+        <button onclick="findFromManuscript()" class="text-[11px] text-brand-600 dark:text-brand-300 hover:underline">Search from abstract</button>
+      </header>
+      <div class="p-4 space-y-3">
+        <div class="flex gap-2">
+          <input id="find-q" type="text" placeholder="Search the indexed papers…"
+                 onkeydown="if(event.key==='Enter') doFind()"
+                 class="flex-1 bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-400">
+          <button onclick="doFind()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 rounded-lg">Search</button>
+        </div>
+        <div id="find-results" class="space-y-2 max-h-[28rem] overflow-y-auto scroll-thin">
+          <div class="text-ink-400 text-center py-6 text-xs">Search by query, or use the manuscript abstract.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MS_ID = document.getElementById('ms-id').textContent.trim();
+
+const LINK_TYPES = ['cites', 'supports', 'contrasts', 'background', 'extends', 'related'];
+
+const LINK_STYLES = {
+  cites:      'bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300',
+  supports:   'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300',
+  contrasts:  'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300',
+  background: 'bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300',
+  extends:    'bg-rose-100 dark:bg-rose-900 text-rose-700 dark:text-rose-300',
+  related:    'bg-ink-100 dark:bg-ink-800 text-ink-600 dark:text-ink-300',
+};
+
+document.addEventListener('DOMContentLoaded', () => { loadLinked(); });
+
+// ── Linked papers ────────────────────────────────────────────
+async function loadLinked() {
+  const list = document.getElementById('linked-list');
+  try {
+    const r = await fetch('/api/rag/links/' + encodeURIComponent(MS_ID));
+    const d = await r.json();
+    document.getElementById('linked-count').textContent = d.total ?? 0;
+    if (!d.links?.length) {
+      list.innerHTML = '<div class="text-ink-400 text-center py-6 text-xs">No papers linked yet. Search below and click "Link" to attach papers.</div>'; return;
+    }
+    list.innerHTML = d.links.map(l => {
+      const style = LINK_STYLES[l.link_type] || LINK_STYLES.related;
+      return `
+        <article class="border border-ink-200 dark:border-ink-800 rounded-lg p-3 flex gap-3 items-start">
+          <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${style} flex-shrink-0">${escapeHtml(l.link_type)}</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-xs leading-snug">${escapeHtml(l.title || l.rag_paper_id)}</div>
+            <div class="font-mono text-[10px] text-ink-400 mt-0.5 truncate">${escapeHtml(l.rag_paper_id)}</div>
+            ${l.note ? `<div class="text-[11px] text-ink-500 dark:text-ink-400 mt-1 italic">"${escapeHtml(l.note)}"</div>` : ''}
+          </div>
+          <button onclick="unlinkPaper(${l.id})" class="text-ink-300 hover:text-red-500 text-sm" title="Remove link">✕</button>
+        </article>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="text-red-500 text-xs">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function unlinkPaper(linkId) {
+  if (!confirm('Remove this link?')) return;
+  await fetch('/api/rag/links/' + linkId, {method: 'DELETE'});
+  loadLinked();
+}
+
+// ── Find / search ────────────────────────────────────────────
+async function findFromManuscript() {
+  const abs = document.getElementById('ms-abstract').value.trim();
+  const claim = document.getElementById('ms-claim').value.trim();
+  const q = (claim || abs).slice(0, 500);
+  if (!q) { alert('No abstract or claim to search from.'); return; }
+  document.getElementById('find-q').value = q.slice(0, 80) + (q.length > 80 ? '…' : '');
+  await runFind(q);
+}
+
+async function doFind() {
+  const q = document.getElementById('find-q').value.trim();
+  if (!q) return;
+  await runFind(q);
+}
+
+async function runFind(query) {
+  const out = document.getElementById('find-results');
+  out.innerHTML = '<div class="flex items-center gap-2 text-xs text-ink-500 py-3 px-2"><span class="spinner"></span> Searching…</div>';
+  try {
+    const r = await fetch('/api/rag/search', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query, top_k: 12})
+    });
+    const d = await r.json();
+    if (!d.results?.length) {
+      out.innerHTML = '<div class="text-ink-400 text-center py-6 text-xs">No matches.</div>'; return;
+    }
+    out.innerHTML = d.results.map(r => renderFindResult(r)).join('');
+  } catch (e) {
+    out.innerHTML = `<div class="text-red-500 text-xs">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderFindResult(r) {
+  const snippet = (r.text || '').slice(0, 200);
+  return `
+    <article class="border border-ink-200 dark:border-ink-800 rounded-lg p-3">
+      <div class="font-medium text-xs leading-snug">${escapeHtml((r.title || r.paper_id).slice(0, 90))}</div>
+      <div class="font-mono text-[10px] text-ink-400 mt-0.5 truncate">${escapeHtml(r.paper_id)} · ${escapeHtml(r.section_name || '')} · p. ${r.page_start || '?'}</div>
+      <p class="text-[11px] text-ink-600 dark:text-ink-300 mt-1.5 leading-relaxed">${escapeHtml(snippet)}${(r.text || '').length > 200 ? '…' : ''}</p>
+      <div class="flex items-center gap-1.5 mt-2">
+        <select id="lt-${escapeAttr(r.paper_id)}" class="text-[11px] bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-1">
+          ${LINK_TYPES.map(t => `<option value="${t}"${t === 'related' ? ' selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <button onclick="linkPaper('${escapeJs(r.paper_id)}')" class="text-[11px] bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-1 rounded-md">Link</button>
+        <a href="/api/rag/pdf?id=${encodeURIComponent(r.paper_id)}" target="_blank" class="text-[11px] text-ink-500 hover:text-brand-600 ml-auto">PDF ↗</a>
+      </div>
+    </article>`;
+}
+
+async function linkPaper(paperId) {
+  const linkType = document.getElementById('lt-' + cssEscape(paperId)).value;
+  const fd = new FormData();
+  fd.set('ms_id', MS_ID); fd.set('paper_id', paperId);
+  fd.set('link_type', linkType); fd.set('note', '');
+  try {
+    const r = await fetch('/api/rag/links', {method: 'POST', body: fd});
+    const d = await r.json();
+    if (d.success) {
+      loadLinked();
+      toast('Linked: ' + paperId.slice(0, 24));
+    } else {
+      alert(d.error || 'Link failed');
+    }
+  } catch (e) { alert('Link failed: ' + e.message); }
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 right-4 bg-ink-800 dark:bg-ink-100 text-white dark:text-ink-900 px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+// Strip non-CSS-safe chars so getElementById('lt-…') keeps working with weird paper IDs
+function escapeAttr(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function cssEscape(s)  { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeJs(s)   { return String(s).replace(/'/g, "\\'"); }
+</script>
+{% endblock %}

@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block heading %}Dashboard{% endblock %}
+{% block subtitle %}A single view of everything in flight — manuscripts, submissions, your literature lab, and the local model.{% endblock %}
+{% block header_actions %}
+  <a href="/research/chat"
+     class="bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-100 text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+    New chat
+  </a>
+  <a href="/manuscripts/new"
+     class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add manuscript
+  </a>
+{% endblock %}
+
+{% block content %}
+{# Tag map for submission state pills #}
+{% set state_chip = {
+  'in_review':       'chip-brand',
+  'under_review':    'chip-brand',
+  'revision':        'chip-warn',
+  'minor_revision':  'chip-warn',
+  'major_revision':  'chip-warn',
+  'accepted':        'chip-success',
+  'rejected':        'chip-danger',
+  'desk_rejected':   'chip-danger',
+  'withdrawn':       'chip',
+  'submitted':       'chip-brand',
+} %}
+
+<!-- ── Stat row ──────────────────────────────────────────────────────────── -->
+<div class="grid grid-cols-12 gap-4 mb-5">
+  <!-- Manuscripts -->
+  <div class="tile col-span-6 md:col-span-3">
+    <div class="flex items-start justify-between">
+      <span class="stat-label">Manuscripts</span>
+      <span class="chip chip-brand">{{ manuscript_count }}</span>
+    </div>
+    <div class="stat-num mt-2 text-ink-900 dark:text-ink-50">{{ manuscript_count }}</div>
+    <p class="text-xs text-ink-400 mt-1">across all stages</p>
+    <a href="/manuscripts" class="text-xs text-brand-600 dark:text-brand-300 hover:underline mt-3 inline-block">Manage →</a>
+  </div>
+
+  <!-- Active submissions -->
+  <div class="tile col-span-6 md:col-span-3">
+    <div class="flex items-start justify-between">
+      <span class="stat-label">Active</span>
+      {% if active_sub_count > 0 %}
+        <span class="chip chip-warn">in flight</span>
+      {% else %}
+        <span class="chip">idle</span>
+      {% endif %}
+    </div>
+    <div class="stat-num mt-2 text-ink-900 dark:text-ink-50">{{ active_sub_count }}</div>
+    <p class="text-xs text-ink-400 mt-1">{{ total_subs }} total submitted</p>
+    <a href="/submissions" class="text-xs text-brand-600 dark:text-brand-300 hover:underline mt-3 inline-block">Track →</a>
+  </div>
+
+  <!-- Indexed papers — hero tile (lavender on light, indigo gradient on dark) -->
+  <div class="tile-inverted col-span-12 md:col-span-6 relative">
+    <div class="flex items-start justify-between relative z-10">
+      <div>
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300">Indexed papers</span>
+        <div class="stat-num mt-2 text-brand-900 dark:text-white">{{ "{:,}".format(rag_paper_count) }}</div>
+        <p class="text-xs mt-1 text-brand-700 dark:text-brand-200">
+          {{ "{:,}".format(rag_chunk_count) }} chunks · {{ journal_count }} journals tracked
+        </p>
+      </div>
+      <div class="text-right">
+        <div class="text-[10px] uppercase tracking-wider font-semibold text-brand-700 dark:text-brand-300 font-mono" data-gen-label>gemma3:12b</div>
+        <div class="text-[10px] mt-1 text-brand-600 dark:text-brand-200">via Ollama</div>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-4 relative z-10 flex-wrap">
+      <a href="/research/chat"   class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition shadow-sm">Ask the lab →</a>
+      <a href="/research/upload" class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition shadow-sm flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        Upload papers
+      </a>
+      <a href="/research/search" class="bg-white/70 hover:bg-white text-brand-700 dark:bg-white/10 dark:hover:bg-white/20 dark:text-brand-200 text-xs font-medium px-3.5 py-2 rounded-lg transition">Browse</a>
+      <a href="/research/graph"  class="bg-white/70 hover:bg-white text-brand-700 dark:bg-white/10 dark:hover:bg-white/20 dark:text-brand-200 text-xs font-medium px-3.5 py-2 rounded-lg transition">Knowledge graph</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main bento row: Active submissions + Recent chats ──────────────────── -->
+<div class="grid grid-cols-12 gap-4 mb-5">
+  <!-- Active submissions -->
+  <div class="tile tile-flush col-span-12 lg:col-span-7 overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-ink-100 dark:border-ink-800">
+      <div>
+        <h2 class="font-semibold text-ink-900 dark:text-ink-50">Active submissions</h2>
+        <p class="text-xs text-ink-400 mt-0.5">Where each manuscript stands right now</p>
+      </div>
+      <a href="/submissions" class="text-xs text-brand-600 dark:text-brand-300 hover:underline">View all →</a>
+    </div>
+    {% if active_subs %}
+    <div class="divide-y divide-ink-100 dark:divide-ink-800">
+      {% for s in active_subs %}
+      <a href="/submissions/{{ s.id }}" class="flex items-center gap-4 px-6 py-3.5 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-ink-800 dark:text-ink-100 truncate">{{ s.manuscript_title[:60] }}</div>
+          <div class="text-[11px] text-ink-400 truncate mt-0.5">→ {{ s.journal_name }}</div>
+        </div>
+        <span class="chip {{ state_chip.get(s.current_state, 'chip') }}">{{ s.current_state.replace('_', ' ') }}</span>
+        <div class="text-right min-w-[64px]">
+          <div class="text-sm font-mono font-semibold {% if s.days_elapsed > 60 %}text-rose-600 dark:text-rose-300{% else %}text-ink-600 dark:text-ink-300{% endif %}">{{ s.days_elapsed }}d</div>
+          <div class="text-[10px] text-ink-400">in state</div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-6 py-10 text-center text-sm text-ink-400">
+      No active submissions. <a href="/manuscripts" class="text-brand-600 dark:text-brand-300 hover:underline">Pick a manuscript</a> to submit.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Recent chats -->
+  <div class="tile tile-flush col-span-12 lg:col-span-5 overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-ink-100 dark:border-ink-800">
+      <div>
+        <h2 class="font-semibold text-ink-900 dark:text-ink-50">Recent chats</h2>
+        <p class="text-xs text-ink-400 mt-0.5">{{ chat_session_count }} session{{ '' if chat_session_count == 1 else 's' }} with the local model</p>
+      </div>
+      <a href="/research/chat" class="text-xs text-brand-600 dark:text-brand-300 hover:underline">Open chat →</a>
+    </div>
+    {% if chat_sessions %}
+    <div class="divide-y divide-ink-100 dark:divide-ink-800">
+      {% for c in chat_sessions %}
+      <a href="/research/chat" class="block px-6 py-3 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+        <div class="text-sm text-ink-800 dark:text-ink-100 line-clamp-1">{{ c.title or 'Untitled' }}</div>
+        <div class="text-[10px] text-ink-400 mt-0.5 font-mono">{{ c.agent_id or 'chat' }} · {{ c.turn_count or 0 }} turns</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-6 py-10 text-center text-sm text-ink-400">
+      No chats yet. <a href="/research/chat" class="text-brand-600 dark:text-brand-300 hover:underline">Start one →</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Bottom bento row: Recent manuscripts + Recent findings + Notes ───── -->
+<div class="grid grid-cols-12 gap-4">
+  <!-- Recent manuscripts -->
+  <div class="tile tile-flush col-span-12 lg:col-span-6 overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-ink-100 dark:border-ink-800">
+      <div>
+        <h2 class="font-semibold text-ink-900 dark:text-ink-50">Recent manuscripts</h2>
+        <p class="text-xs text-ink-400 mt-0.5">Last edited or added</p>
+      </div>
+      <a href="/manuscripts" class="text-xs text-brand-600 dark:text-brand-300 hover:underline">View all →</a>
+    </div>
+    {% if manuscripts %}
+    <div class="divide-y divide-ink-100 dark:divide-ink-800">
+      {% for m in manuscripts[:6] %}
+      <div class="flex items-center gap-3 px-6 py-3 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-ink-800 dark:text-ink-100 truncate">{{ m.title[:70] }}</div>
+          <div class="text-[11px] text-ink-400 mt-0.5 font-mono truncate">{{ m.id }} · {{ m.created_at[:10] }}</div>
+        </div>
+        <a href="/manuscripts/{{ m.id }}/edit" class="text-[11px] text-ink-500 hover:text-brand-600 px-2">Edit</a>
+        <a href="/recommend?ms={{ m.id }}" class="text-[11px] bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300 hover:bg-brand-100 px-2.5 py-1 rounded-md">Recommend</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-6 py-10 text-center text-sm text-ink-400">
+      No manuscripts. <a href="/manuscripts/new" class="text-brand-600 dark:text-brand-300 hover:underline">Add one →</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Recent findings (memory) + Recent notes stacked -->
+  <div class="col-span-12 lg:col-span-6 space-y-4">
+    <div class="tile tile-flush overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-ink-100 dark:border-ink-800">
+        <div>
+          <h2 class="font-semibold text-ink-900 dark:text-ink-50">Recent findings</h2>
+          <p class="text-xs text-ink-400 mt-0.5">Auto-extracted from chat sessions</p>
+        </div>
+        <a href="/research/memory" class="text-xs text-brand-600 dark:text-brand-300 hover:underline">Memory →</a>
+      </div>
+      {% if recent_findings %}
+      <div class="divide-y divide-ink-100 dark:divide-ink-800">
+        {% for f in recent_findings %}
+        <div class="px-6 py-3 flex gap-3 items-start">
+          <span class="chip
+            {% if f.memory_type == 'finding' %}chip-success
+            {% elif f.memory_type == 'hypothesis' %}chip-warn
+            {% else %}chip-brand{% endif %}">{{ f.memory_type or 'note' }}</span>
+          <p class="text-xs text-ink-600 dark:text-ink-300 leading-relaxed flex-1 line-clamp-2">{{ f.content }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="px-6 py-8 text-center text-sm text-ink-400">
+        No findings yet. The model extracts these from your chats.
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="tile tile-flush overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-ink-100 dark:border-ink-800">
+        <div>
+          <h2 class="font-semibold text-ink-900 dark:text-ink-50">Recent notes</h2>
+          <p class="text-xs text-ink-400 mt-0.5">Markdown files in notes/</p>
+        </div>
+        <a href="/research/notes" class="text-xs text-brand-600 dark:text-brand-300 hover:underline">All notes →</a>
+      </div>
+      {% if recent_notes %}
+      <div class="divide-y divide-ink-100 dark:divide-ink-800">
+        {% for n in recent_notes %}
+        <a href="/research/notes" class="block px-6 py-3 hover:bg-ink-50 dark:hover:bg-ink-950 transition">
+          <div class="text-sm font-medium text-ink-800 dark:text-ink-100 truncate">{{ n.title }}</div>
+          <p class="text-[11px] text-ink-400 truncate mt-0.5">{{ n.preview }}</p>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="px-6 py-8 text-center text-sm text-ink-400">No notes saved yet.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

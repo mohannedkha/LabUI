@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Upload papers{% endblock %}
+{% block heading %}Upload papers{% endblock %}
+{% block subtitle %}Drop PDFs here — they go straight into your indexed library{% endblock %}
+{% block header_actions %}
+  <a href="/research/search" class="bg-ink-100 dark:bg-ink-800 hover:bg-ink-200 text-ink-700 dark:text-ink-100 text-sm font-medium px-4 py-2 rounded-xl">Browse library</a>
+{% endblock %}
+
+{% block content %}
+<style>
+  .dropzone {
+    border: 2px dashed #c7d0ff;
+    border-radius: 24px;
+    background: linear-gradient(135deg, rgba(238,241,255,0.4) 0%, rgba(224,229,255,0.3) 100%);
+    transition: all 0.2s ease;
+    min-height: 280px;
+  }
+  .dropzone.hover {
+    border-color: #5e6bf0;
+    background: linear-gradient(135deg, rgba(238,241,255,0.8) 0%, rgba(199,208,255,0.5) 100%);
+    transform: scale(1.01);
+  }
+  .dark .dropzone {
+    border-color: #353c8f;
+    background: linear-gradient(135deg, rgba(29,32,80,0.4) 0%, rgba(46,53,115,0.3) 100%);
+  }
+  .dark .dropzone.hover {
+    border-color: #7c8aff;
+    background: linear-gradient(135deg, rgba(46,53,115,0.6) 0%, rgba(78,88,216,0.4) 100%);
+  }
+  .file-row { transition: all 0.2s ease; }
+</style>
+
+<div class="grid grid-cols-12 gap-5">
+  <!-- ── Drop zone ────────────────────────────────────────────── -->
+  <div class="col-span-12 xl:col-span-8 space-y-4">
+    <div id="dropzone" class="dropzone flex flex-col items-center justify-center p-10 text-center cursor-pointer"
+         onclick="document.getElementById('file-input').click()">
+      <svg class="w-16 h-16 text-brand-400 dark:text-brand-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+      </svg>
+      <h2 class="text-xl font-semibold text-ink-800 dark:text-ink-50">Drag PDFs or a folder here</h2>
+      <p class="text-sm text-ink-500 dark:text-ink-400 mt-1.5">or choose files / a whole folder from your device</p>
+      <p class="text-[11px] text-ink-400 mt-3">Folders are scanned recursively · up to 200 MB each · PDF only</p>
+      <div class="flex gap-2 mt-4" onclick="event.stopPropagation()">
+        <button type="button" onclick="document.getElementById('file-input').click()"
+          class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-4 py-2 rounded-lg">Choose files</button>
+        <button type="button" onclick="document.getElementById('folder-input').click()"
+          class="bg-ink-100 dark:bg-ink-800 hover:bg-ink-200 text-ink-700 dark:text-ink-200 text-xs font-semibold px-4 py-2 rounded-lg">Choose folder</button>
+      </div>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" multiple style="display:none" onchange="handleFilePick(event)">
+      <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none" onchange="handleFilePick(event)">
+    </div>
+
+    <!-- File list -->
+    <div id="upload-summary" class="hidden tile">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-50">Upload progress</h3>
+        <div class="text-[11px] text-ink-400 font-mono" id="summary-counts">—</div>
+      </div>
+      <div id="file-list" class="space-y-2"></div>
+      <div class="flex gap-2 mt-4">
+        <button id="btn-start" onclick="startUploads()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-5 py-2 rounded-xl">Upload all</button>
+        <button onclick="clearList()" class="bg-ink-100 dark:bg-ink-800 hover:bg-ink-200 text-ink-700 dark:text-ink-200 text-sm font-medium px-4 py-2 rounded-xl">Clear</button>
+        <span id="batch-status" class="ml-auto text-xs text-ink-400 self-center"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Side: where they go + index status ───────────────────── -->
+  <aside class="col-span-12 xl:col-span-4 space-y-4">
+    <div class="tile">
+      <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-400 mb-2">Saved to</div>
+      <div class="font-mono text-xs text-ink-600 dark:text-ink-300 break-all leading-relaxed" id="papers-dir">…</div>
+    </div>
+
+    <div class="tile">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-400">Auto-index</div>
+        <button id="btn-reindex" onclick="triggerReindex()"
+          class="text-[11px] bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-1 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed">
+          Index now
+        </button>
+      </div>
+      <p class="text-xs text-ink-600 dark:text-ink-300 leading-relaxed">
+        The daemon polls every <span id="poll-interval">120</span>s, detects new PDFs, and runs
+        <span class="font-mono">parse_pdfs</span> → <span class="font-mono">build_index</span>.
+        Click <span class="font-medium">Index now</span> to skip the wait.
+      </p>
+      <div class="mt-3 text-[11px]">
+        <div class="flex items-center justify-between"><span class="text-ink-400">Indexed</span><span class="font-mono" id="idx-papers">—</span></div>
+        <div class="flex items-center justify-between"><span class="text-ink-400">Chunks</span><span class="font-mono" id="idx-chunks">—</span></div>
+        <div class="flex items-center gap-2 mt-2"><span class="status-dot" id="idx-running"></span><span id="idx-msg" class="text-ink-400 text-[11px] truncate">…</span></div>
+      </div>
+    </div>
+
+    <div class="tile-inverted">
+      <div class="relative z-10">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-brand-700 dark:text-brand-300">Next step</div>
+        <p class="text-sm text-brand-900 dark:text-white mt-2 leading-relaxed">Once auto-index finishes, your new papers are searchable and citable.</p>
+        <div class="flex gap-2 mt-3">
+          <a href="/research/chat" class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Ask the lab →</a>
+          <a href="/research/search" class="bg-white/70 hover:bg-white dark:bg-white/10 dark:hover:bg-white/20 text-brand-700 dark:text-brand-200 text-xs font-medium px-3 py-1.5 rounded-lg">Search</a>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let queue = [];  // {file, status, percent, error, saved_as}
+let uploading = false;
+
+// ── Drag-drop + picker ────────────────────────────────────────
+const dz = document.getElementById('dropzone');
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation(); dz.classList.add('hover');
+}));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  if (ev === 'dragleave' && dz.contains(e.relatedTarget)) return;
+  dz.classList.remove('hover');
+}));
+dz.addEventListener('drop', async e => {
+  const items = e.dataTransfer?.items;
+  // If the browser exposes filesystem entries, traverse dropped folders recursively.
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    const entries = [...items].map(it => it.webkitGetAsEntry()).filter(Boolean); // capture sync
+    const files = [];
+    for (const ent of entries) await collectEntry(ent, files);
+    addFiles(files);
+  } else {
+    addFiles([...(e.dataTransfer?.files || [])]);
+  }
+});
+
+// Recursively collect files from a dropped folder tree (PDFs filtered later in addFiles).
+async function collectEntry(entry, out) {
+  if (!entry) return;
+  if (entry.isFile) {
+    try { out.push(await new Promise((res, rej) => entry.file(res, rej))); } catch (e) {}
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+      for (const child of batch) await collectEntry(child, out);
+    } while (batch.length);
+  }
+}
+
+function handleFilePick(e) {
+  addFiles([...e.target.files]);
+  e.target.value = '';  // allow re-picking the same file
+}
+
+function addFiles(files) {
+  let added = 0;
+  for (const f of files) {
+    if (!f.name.toLowerCase().endsWith('.pdf') && f.type !== 'application/pdf') continue;
+    // Skip exact duplicates (same name + size)
+    if (queue.some(q => q.file.name === f.name && q.file.size === f.size)) continue;
+    queue.push({ file: f, status: 'queued', percent: 0, error: null, saved_as: null });
+    added++;
+  }
+  if (added > 0) {
+    document.getElementById('upload-summary').classList.remove('hidden');
+    renderList();
+  }
+}
+
+function clearList() {
+  queue = [];
+  document.getElementById('upload-summary').classList.add('hidden');
+  document.getElementById('batch-status').textContent = '';
+}
+
+function renderList() {
+  const list = document.getElementById('file-list');
+  list.innerHTML = queue.map((q, i) => {
+    const colorClass =
+      q.status === 'done'     ? 'border-emerald-400 dark:border-emerald-700' :
+      q.status === 'failed'   ? 'border-rose-400 dark:border-rose-700'       :
+      q.status === 'uploading'? 'border-brand-400 dark:border-brand-600'     :
+                                'border-ink-200 dark:border-ink-800';
+    const statusIcon =
+      q.status === 'done'      ? '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>' :
+      q.status === 'failed'    ? '<svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>' :
+      q.status === 'uploading' ? '<span class="spinner"></span>' :
+                                  '<svg class="w-4 h-4 text-ink-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>';
+    return `
+      <div class="file-row border ${colorClass} rounded-xl px-3 py-2 flex items-center gap-3">
+        <div class="flex-shrink-0">${statusIcon}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-medium truncate text-ink-800 dark:text-ink-100">${escapeHtml(q.saved_as || q.file.name)}</div>
+            <div class="text-[10px] text-ink-400 font-mono flex-shrink-0">${humanSize(q.file.size)}</div>
+          </div>
+          ${q.status === 'uploading' ? `
+            <div class="h-1 bg-ink-100 dark:bg-ink-800 rounded-full mt-1.5 overflow-hidden">
+              <div class="h-full bg-brand-500 transition-all duration-200" style="width: ${q.percent}%"></div>
+            </div>` : ''}
+          ${q.error ? `<div class="text-[11px] text-rose-600 dark:text-rose-300 mt-0.5">${escapeHtml(q.error)}</div>` : ''}
+          ${q.status === 'done' && q.saved_as && q.saved_as !== q.file.name ?
+            `<div class="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">saved as ${escapeHtml(q.saved_as)}</div>` : ''}
+        </div>
+        ${q.status === 'queued' ? `<button onclick="removeOne(${i})" class="text-ink-300 hover:text-rose-500 text-lg leading-none px-1">×</button>` : ''}
+      </div>`;
+  }).join('');
+  const done = queue.filter(q => q.status === 'done').length;
+  const failed = queue.filter(q => q.status === 'failed').length;
+  document.getElementById('summary-counts').textContent =
+    `${queue.length} file${queue.length === 1 ? '' : 's'} · ${done} ok · ${failed} failed`;
+  document.getElementById('btn-start').disabled = uploading || queue.every(q => q.status !== 'queued');
+  document.getElementById('btn-start').classList.toggle('opacity-50', uploading || queue.every(q => q.status !== 'queued'));
+}
+
+function removeOne(i) { queue.splice(i, 1); renderList(); }
+
+// ── Upload ────────────────────────────────────────────────────
+async function startUploads() {
+  if (uploading) return;
+  const pending = queue.filter(q => q.status === 'queued');
+  if (!pending.length) return;
+  uploading = true;
+  document.getElementById('batch-status').textContent = 'Uploading…';
+
+  // Send one-at-a-time (clearer per-file progress; backend supports batch too)
+  for (const q of pending) {
+    q.status = 'uploading'; q.percent = 0; renderList();
+    try {
+      const res = await uploadOne(q);
+      if (res.papers_dir) document.getElementById('papers-dir').textContent = res.papers_dir;
+      const r = res.results?.[0];
+      if (r?.ok) {
+        q.status = 'done'; q.saved_as = r.saved_as;
+      } else {
+        q.status = 'failed'; q.error = r?.error || 'upload failed';
+      }
+    } catch (e) {
+      q.status = 'failed'; q.error = e.message;
+    }
+    renderList();
+  }
+
+  uploading = false;
+  const done = queue.filter(q => q.status === 'done').length;
+  const failed = queue.filter(q => q.status === 'failed').length;
+  document.getElementById('batch-status').textContent =
+    `Done — ${done} uploaded${failed ? ', ' + failed + ' failed' : ''}. Auto-indexer will pick them up.`;
+  renderList();
+}
+
+function uploadOne(q) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('files', q.file, q.file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/rag/papers/upload');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        q.percent = Math.round((e.loaded / e.total) * 100);
+        renderList();
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch (e) { reject(new Error('bad response')); }
+      } else {
+        reject(new Error('HTTP ' + xhr.status));
+      }
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(fd);
+  });
+}
+
+// ── Trigger reindex now ───────────────────────────────────────
+async function triggerReindex() {
+  const btn = document.getElementById('btn-reindex');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/rag/ingest/run', { method: 'POST' });
+    if (r.status === 409) {
+      btn.textContent = 'Already running';
+    } else if (!r.ok) {
+      btn.textContent = 'Failed';
+    } else {
+      btn.textContent = 'Running…';
+    }
+    refreshUploadStatus();
+  } catch (e) {
+    btn.textContent = 'Error';
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Index now'; }, 3500);
+}
+
+// ── Live status: index + auto-index ───────────────────────────
+async function refreshUploadStatus() {
+  try {
+    const r = await fetch('/api/rag/status');
+    const s = await r.json();
+    document.getElementById('idx-papers').textContent = (s.papers ?? 0).toLocaleString();
+    document.getElementById('idx-chunks').textContent = (s.chunks ?? 0).toLocaleString();
+    const msg = (s.ingest && s.ingest.message) || 'idle';
+    document.getElementById('idx-msg').textContent = msg;
+    const dot = document.getElementById('idx-running');
+    dot.classList.remove('ok','warn','err','pulse');
+    if (s.ingest?.running) dot.classList.add('warn', 'pulse');
+    else if (s.index) dot.classList.add('ok');
+    else dot.classList.add('err');
+  } catch (e) {}
+}
+refreshUploadStatus();
+setInterval(refreshUploadStatus, 4000);
+
+// Try to surface PAPERS_PDF_DIR via /api/rag/papers/upload's response header eventually;
+// for now show what we know server-side via a small fetch hack on first upload, or
+// just show the env-style hint:
+(async () => {
+  // Show the real papers dir (filled from the first upload response; neutral until then).
+  document.getElementById('papers-dir').textContent = 'your local papers library';
+})();
+
+// Helpers
+function humanSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+{% endblock %}

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research Lab — RAG + JFR</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+  [x-cloak] { display: none !important; }
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; font-weight: 600; }
+  .tab-inactive { color: #6b7280; }
+  .tab-inactive:hover { color: #374151; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div x-data="researchLab()" x-init="init()" class="max-w-7xl mx-auto px-4 py-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Research Lab</h1>
+      <p class="text-sm text-gray-500 mt-1">Integrated literature search & manuscript tracking</p>
+    </div>
+    <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800">← Back to JFR</a>
+  </div>
+
+  <!-- Manuscript Selector -->
+  <div class="mb-4">
+    <select x-model="selectedMs" @change="loadLab()" class="border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full md:w-80">
+      <option value="">Select a manuscript...</option>
+      <template x-for="ms in manuscripts" :key="ms.id">
+        <option :value="ms.id" x-text="ms.title" :selected="ms.id === selectedMs"></option>
+      </template>
+    </select>
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" x-show="stats.rag">
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+      <div class="text-xs text-gray-500 font-medium uppercase tracking-wider">Papers Indexed</div>
+      <div class="text-2xl font-bold text-indigo-600 mt-1" x-text="stats.rag?.papers_indexed || 0"></div>
+    </div>
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+      <div class="text-xs text-gray-500 font-medium uppercase tracking-wider">Chunks</div>
+      <div class="text-2xl font-bold text-indigo-600 mt-1" x-text="stats.rag?.chunks_indexed || 0"></div>
+    </div>
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+      <div class="text-xs text-gray-500 font-medium uppercase tracking-wider">Manuscripts</div>
+      <div class="text-2xl font-bold text-emerald-600 mt-1" x-text="stats.manuscripts || 0"></div>
+    </div>
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+      <div class="text-xs text-gray-500 font-medium uppercase tracking-wider">Active Subs</div>
+      <div class="text-2xl font-bold text-amber-600 mt-1" x-text="stats.active_submissions || 0"></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex border-b border-gray-200 mb-6">
+    <button @click="activeTab='search'" :class="activeTab==='search' ? 'tab-active' : 'tab-inactive'" class="px-5 py-3 text-sm font-medium border-b-2 transition-colors">Search</button>
+    <button @click="activeTab='manuscript'" :class="activeTab==='manuscript' ? 'tab-active' : 'tab-inactive'" class="px-5 py-3 text-sm font-medium border-b-2 transition-colors">Manuscript Context</button>
+    <button @click="activeTab='library'" :class="activeTab==='library' ? 'tab-active' : 'tab-inactive'" class="px-5 py-3 text-sm font-medium border-b-2 transition-colors">Library</button>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div x-show="activeTab==='search'" class="fade-in">
+    <div class="flex gap-3 mb-6">
+      <input x-model="searchQuery" @keydown.enter="performSearch()" type="text" placeholder="Search papers (e.g. 'nanobubble electrostatic stabilization')" class="flex-1 border border-gray-300 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+      <button @click="performSearch()" :disabled="!searchQuery.trim() || searching" class="px-6 py-3 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">Search</button>
+      <input x-model="searchLimit" type="number" min="1" max="50" class="w-20 border border-gray-300 rounded-lg px-3 py-3 text-sm text-center focus:ring-2 focus:ring-indigo-500" placeholder="N" />
+    </div>
+
+    <!-- Loading -->
+    <div x-show="searching" class="flex items-center gap-3 py-12 text-center">
+      <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+      <span class="text-sm text-gray-500">Searching literature...</span>
+    </div>
+
+    <!-- Results -->
+    <div x-show="!searching && searchResults.length" class="space-y-3">
+      <div class="text-sm text-gray-500 mb-2">
+        <span x-text="searchResults.length"></span> result<span x-show="searchResults.length !== 1">s</span> for "<span x-text="searchQuery"></span>"
+      </div>
+      <template x-for="(result, idx) in searchResults" :key="idx">
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:border-indigo-200 transition-colors">
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+              <span class="text-xs font-bold text-indigo-600" x-text="idx+1"></span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-sm font-semibold text-gray-900 mb-1" x-text="result.title || 'Untitled'"></h3>
+              <div class="text-xs text-gray-500 mb-2">
+                <span x-text="result.authors" class="inline-block mr-3"></span>
+                <x-show="result.year" class="inline-block bg-gray-100 px-2 py-0.5 rounded"><span x-text="result.year"></span></x-show>
+                <x-show="result.journal" class="inline-block ml-2 italic text-gray-400"><span x-text="result.journal"></span><svg class="inline w-2 h-2 ml-1"><use href="#arrow"/></svg></span>
+              </div>
+              <p class="text-xs text-gray-600 line-clamp-2" x-text="result.snippet || ''"></p>
+              <div class="mt-2 flex gap-3">
+                <x-show="result.doi" class="inline-block">
+                  <a :href="'https://doi.org/' + result.doi" target="_blank" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">DOI ↗</a>
+                </x-show>
+                <x-show="result.url" class="inline-block">
+                  <a :href="result.url" target="_blank" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Link ↗</a>
+                </x-show>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Empty state -->
+    <div x-show="!searching && !searchQuery" class="text-center py-16 text-gray-400">
+      <svg class="mx-auto h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+      <p class="text-sm">Enter a query to search the literature</p>
+    </div>
+  </div>
+
+  <!-- MANUSCRIPT CONTEXT TAB -->
+  <div x-show="activeTab==='manuscript'" class="fade-in">
+    <div x-show="!selectedMs" class="text-center py-16 text-gray-400">
+      <p class="text-sm">Select a manuscript above to view its context</p>
+    </div>
+    <div x-show="selectedMs && contextLoading" class="flex items-center gap-3 py-12 text-center">
+      <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+      <span class="text-sm text-gray-500">Loading manuscript context...</span>
+    </div>
+    <div x-show="selectedMs && !contextLoading && context">
+      <!-- Manuscript Info -->
+      <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-6">
+        <h2 class="text-lg font-bold text-gray-900" x-text="context.manuscript?.title || context.manuscript_id"></h2>
+        <p class="text-sm text-gray-600 mt-2 whitespace-pre-line" x-text="context.manuscript?.abstract || ''"></p>
+        <div class="mt-3 flex gap-2" x-show="context.manuscript?.principal_claim">
+          <span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-medium">Claim</span>
+          <span class="text-xs text-gray-600" x-text="context.manuscript.principal_claim"></span>
+        </div>
+      </div>
+
+      <!-- Linked Papers -->
+      <div x-show="context.linked_papers?.length" class="mb-6">
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">Linked Papers</h3>
+        <div class="space-y-2">
+          <template x-for="link in context.linked_papers" :key="link.id">
+            <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100 flex gap-3 items-start">
+              <span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium" x-text="link.link_type"></span>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-medium text-gray-900" x-text="link.papertitle || link.rag_paper_id"></p>
+                <x-show="link.note" class="text-xs text-gray-500 mt-1" x-text="'Note: ' + link.note"></x-show>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Topical Results -->
+      <div x-show="context.topical_results?.length">
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">Topical Matches</h3>
+        <div class="space-y-2">
+          <template x-for="result in context.topical_results" :key="result.rag_paper_id">
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+              <div class="flex gap-3">
+                <div class="flex-shrink-0 w-6 h-6 bg-indigo-50 rounded flex items-center justify-center">
+                  <span class="text-xs font-bold text-indigo-600" x-text="result.rank"></span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-xs font-medium text-gray-900" x-text="result.title"></p>
+                  <p class="text-xs text-gray-500" x-text="result.authors"></p>
+                  <div class="mt-1 flex items-center gap-3">
+                    <span class="text-xs" x-show="result.match_score">
+                      <span class="text-indigo-600 font-medium">Score:</span> <span x-text="result.match_score"></span>
+                    </span>
+                    <span class="text-xs italic text-gray-400" x-text="result.journal"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIBRARY TAB -->
+  <div x-show="activeTab==='library'" class="fade-in">
+    <div class="flex gap-3 mb-6">
+      <input x-model="libraryFilter" @input="filteredLibrary = getFilteredLibrary()" type="text" placeholder="Filter library..." class="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+      <button @click="showLinkModal = true" class="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">+ Link Paper</button>
+    </div>
+    
+    <!-- Library Table -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="text-left px-5 py-3 font-medium text-gray-500">#</th>
+            <th class="text-left px-5 py-3 font-medium text-gray-500">Journal</th>
+            <th class="text-left px-5 py-3 font-medium text-gray-500">Articles</th>
+            <th class="text-left px-5 py-3 font-medium text-gray-500">Embedded</th>
+            <th class="text-left px-5 py-3 font-medium text-gray-500">Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(entry, idx) in getFilteredLibrary()" :key="idx">
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-5 py-3 text-gray-400" x-text="idx+1"></td>
+              <td class="px-5 py-3 font-medium text-gray-900" x-text="entry.id"></td>
+              <td class="px-5 py-3 text-gray-600" x-text="entry.article_count"></td>
+              <td class="px-5 py-3 text-gray-600" x-text="entry.embedded_count ?? 0"></td>
+              <td class="px-5 py-3">
+                <div class="w-24 bg-gray-200 rounded-full h-2">
+                  <div class="bg-indigo-600 h-2 rounded-full" :style="'width:' + getCoverage(entry) + '%'"></div>
+                </div>
+                <span class="text-xs text-gray-500 mt-1" x-text="getCoverage(entry) + '%'"></span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Link Paper Modal -->
+  <div x-show="showLinkModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click="showLinkModal = false">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-xl" @click.stop>
+      <h3 class="text-lg font-bold text-gray-900 mb-4">Link Paper to Manuscript</h3>
+      <x-show="!selectedMs">
+        <p class="text-sm text-amber-600 mb-2">Please select a manuscript first.</p>
+        <button @click="showLinkModal = false" class="text-sm text-gray-500">Close</button>
+      </x-show>
+      <x-show="!!selectedMs">
+        <div class="space-y-4">
+          <div>
+            <label class="text-sm font-medium text-gray-700 mb-1 block">Search RAG papers</label>
+            <input x-model="linkSearchQuery" @keydown.enter="searchLinkPapers()" type="text" placeholder="Title or keyword..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm" />
+          </div>
+          <div x-show="linkSearchResults.length" class="max-h-48 overflow-y-auto space-y-1">
+            <template x-for="p in linkSearchResults" :key="p.rag_paper_id">
+              <button @click="selectLinkPaper(p)" class="w-full text-left px-3 py-2 rounded hover:bg-gray-50 text-xs">
+                <span class="font-medium text-gray-900" x-text="p.title?.substring(0,50)"></span>
+                <span class="text-gray-500 ml-2" x-text="'— ' + p.journal"></span>
+              </button>
+            </template>
+          </div>
+          <x-show="selectedLinkPaper">
+            <div class="border-t pt-3">
+              <div>
+                <label class="text-sm font-medium text-gray-700 mb-1 block">Link Type</label>
+                <select x-model="linkType" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                  <option value="related">Related</option>
+                  <option value="supports">Supports Method</option>
+                  <option value="background">Background</option>
+                  <option value="contrasts">Contrasts</option>
+                  <option value="extends">Extends</option>
+                  <option value="cites">Directly Cites</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm font-medium text-gray-700 mb-1 block">Note (optional)</label>
+                <textarea x-model="linkNote" rows="2" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="Why link this paper?"></textarea>
+              </div>
+              <div class="flex gap-3 pt-2">
+                <button @click="createLink()" class="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">Create Link</button>
+                <button @click="showLinkModal = false" class="px-4 py-2 text-gray-500 text-sm">Cancel</button>
+              </div>
+              <p x-show="linkMessage" x-text="linkMessage" class="text-xs mt-2" :class="linkSuccess ? 'text-green-600' : 'text-red-600'"></p>
+            </div>
+          </x-show>
+        </div>
+      </x-show>
+    </div>
+  </div>
+
+</div>
+
+<!-- Alpine.js Logic -->
+<script>
+function researchLab() {
+  return {
+    manuscripts: [],
+    selectedMs: '',
+    activeTab: 'search',
+    searchQuery: '',
+    searchLimit: 10,
+    searching: false,
+    searchResults: [],
+    context: null,
+    contextLoading: false,
+    stats: {},
+    libraryFilter: '',
+    showLinkModal: false,
+    linkSearchQuery: '',
+    linkSearchResults: [],
+    selectedLinkPaper: null,
+    linkType: 'related',
+    linkNote: '',
+    linkSuccess: false,
+    linkMessage: '',
+
+    async init() {
+      const p = new URLSearchParams(window.location.search);
+      this.selectedMs = p.get('ms') || this.selectedMs;
+      await this.loadStats();
+      if (this.selectedMs) {
+        await this.loadLab();
+      }
+    },
+
+    async loadStats() {
+      try {
+        const resp = await fetch('/api/rag/lab');
+        this.stats = await resp.json();
+      } catch(e) {
+        console.warn('Stats load failed', e);
+      }
+    },
+
+    async loadLab() {
+      if (!this.selectedMs) return;
+      await Promise.all([this.loadManuscripts(), this.loadManuscriptContext()]);
+    },
+
+    async loadManuscripts() {
+      try {
+        const resp = await fetch('/api/manuscripts');
+        const data = await resp.json();
+        this.manuscripts = Array.isArray(data) ? data : [];
+      } catch(e) {}
+    },
+
+    async loadManuscriptContext() {
+      if (!this.selectedMs) return;
+      this.contextLoading = true;
+      try {
+        const resp = await fetch(`/api/rag/manuscript/${this.selectedMs}`);
+        this.context = await resp.json();
+      } catch(e) {
+        this.context = { error: 'Failed to load' };
+      }
+      this.contextLoading = false;
+    },
+
+    async performSearch() {
+      if (!this.searchQuery.trim()) return;
+      this.searching = true;
+      try {
+        const q = encodeURIComponent(this.searchQuery);
+        const limit = encodeURIComponent(this.searchLimit || 10);
+        const resp = await fetch(`/api/rag/search?query=${q}&limit=${limit}`);
+        const data = await resp.json();
+        this.searchResults = data.results || [];
+      } catch(e) {
+        this.searchResults = [];
+      }
+      this.searching = false;
+    },
+
+    // Library helpers
+    getCoverage(entry) {
+      if (!entry) return 0;
+      const total = entry.article_count || 0;
+      const embedded = entry.embedded_count || 0;
+      return total ? Math.round(embedded / total * 100) : 0;
+    },
+
+    getFilteredLibrary() {
+      if (!this.libraryFilter) return this.stats.library || [];
+      const q = this.libraryFilter.toLowerCase();
+      return (this.stats.library || []).filter(e => 
+        e.id.toLowerCase().includes(q) || (e.name || '').toLowerCase().includes(q)
+      );
+    },
+
+    // Link paper helpers
+    selectLinkPaper(p) {
+      this.selectedLinkPaper = p;
+    },
+
+    async searchLinkPapers() {
+      if (!this.linkSearchQuery.trim()) return;
+      try {
+        const q = encodeURIComponent(this.linkSearchQuery);
+        const resp = await fetch(`/api/rag/search?query=${q}&limit=20`);
+        const data = await resp.json();
+        this.linkSearchResults = data.results || [];
+      } catch(e) {}
+    },
+
+    async createLink() {
+      if (!this.selectedLinkPaper || !this.selectedMs) return;
+      try {
+        const fd = new FormData();
+        fd.set('ms_id', this.selectedMs);
+        fd.set('paper_id', this.selectedLinkPaper.rag_paper_id);
+        fd.set('link_type', this.linkType);
+        fd.set('note', this.linkNote);
+        const resp = await fetch('/api/rag/links', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          this.linkSuccess = true;
+          this.linkMessage = 'Link created!';
+          setTimeout(() => { this.showLinkModal = false; this.selectedLinkPaper = null; }, 1000);
+          await this.loadManuscriptContext();
+        } else {
+          this.linkSuccess = false;
+          this.linkMessage = data.error || 'Link creation failed';
+        }
+      } catch(e) {
+        this.linkSuccess = false;
+        this.linkMessage = 'Request failed';
+      }
+    }
+  };
+}
+</script>
+
+</body>
+</html>

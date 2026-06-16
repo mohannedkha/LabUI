@@ -1,0 +1,24 @@
+# Journals explicitly allowed regardless of impact_factor_floor.
+# Add venues whose IF dipped below the threshold but remain relevant submission targets.
+# This key must stay BEFORE any [section] headers to be parsed as a top-level field.
+allow_journals = ["langmuir", "softmatter", "jpcb", "pccp", "spejournal", "sree", "sdec"]
+
+[open_access]
+fully_oa_allowed = false
+hybrid_oa_allowed = true
+
+[publishers]
+blocklist = []
+preferlist = ["acs", "elsevier", "wiley", "rsc", "spe", "nature", "aaas"]
+
+[quality]
+impact_factor_floor = 4.0
+prefer_society_journals = true
+
+[approvals]
+require_supervisor_approval = true
+supervisor_contact = ""
+
+[exclusions]
+journals = []
+# Example: journals = [{ id = "chemosphere", reason = "retraction_concerns" }]

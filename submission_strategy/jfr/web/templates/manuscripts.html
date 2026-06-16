@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Manuscripts{% endblock %}
+{% block heading %}Manuscripts{% endblock %}
+{% block header_actions %}
+  <a href="/manuscripts/new" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Add Manuscript</a>
+{% endblock %}
+
+{% block content %}
+{% if manuscripts %}
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+      <tr>
+        <th class="px-6 py-3 text-left">Title</th>
+        <th class="px-6 py-3 text-left">ID</th>
+        <th class="px-6 py-3 text-left">Principal Claim</th>
+        <th class="px-6 py-3 text-left">Techniques</th>
+        <th class="px-6 py-3 text-right">Added</th>
+        <th class="px-6 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for m in manuscripts %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-6 py-3 text-gray-800 font-medium">{{ m.title[:55] }}</td>
+        <td class="px-6 py-3 font-mono text-xs text-gray-400">{{ m.id }}</td>
+        <td class="px-6 py-3 text-gray-500 text-xs max-w-xs">{{ (m.principal_claim or '')[:80] }}…</td>
+        <td class="px-6 py-3">
+          {% set techs = m.techniques_json | from_json %}
+          {% for t in techs[:3] %}
+          <span class="inline-block bg-indigo-50 text-indigo-700 text-xs px-1.5 py-0.5 rounded mr-1">{{ t }}</span>
+          {% endfor %}
+          {% if techs | length > 3 %}<span class="text-gray-400 text-xs">+{{ techs|length - 3 }}</span>{% endif %}
+        </td>
+        <td class="px-6 py-3 text-right text-gray-400">{{ m.created_at[:10] }}</td>
+        <td class="px-6 py-3 text-right whitespace-nowrap">
+          <a href="/recommend?ms={{ m.id }}" class="text-indigo-600 hover:underline text-xs mr-3">Recommend</a>
+          <a href="/manuscripts/{{ m.id }}/edit" class="text-gray-500 hover:underline text-xs mr-3">Edit</a>
+          <a href="/submissions?ms={{ m.id }}" class="text-gray-400 hover:underline text-xs">History</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-16 text-center">
+  <p class="text-gray-400 mb-4">No manuscripts yet.</p>
+  <a href="/manuscripts/new" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg">Add your first manuscript</a>
+</div>
+{% endif %}
+{% endblock %}

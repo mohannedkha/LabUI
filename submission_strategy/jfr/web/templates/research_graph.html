@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Graph{% endblock %}
+{% block heading %}Research Lab — Knowledge Graph{% endblock %}
+{% block header_actions %}
+  <button onclick="buildGraph()"
+          class="bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 text-sm font-medium px-4 py-2 rounded-lg">
+    Re-extract
+  </button>
+{% endblock %}
+
+{% block content %}
+<style>
+  /* Make the page eat the viewport. */
+  .graph-shell { height: calc(100vh - 8.5rem); min-height: 540px; }
+  .graph-svg   { width: 100%; height: 100%; cursor: grab; display: block; background:
+    radial-gradient(circle at 30% 20%, rgba(94,107,240,0.06), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(94,107,240,0.04), transparent 40%); }
+  .dark .graph-svg { background:
+    radial-gradient(circle at 30% 20%, rgba(94,107,240,0.10), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(94,107,240,0.06), transparent 40%); }
+  .graph-svg:active { cursor: grabbing; }
+  .graph-node circle { stroke: #ffffff; stroke-width: 1.2; transition: stroke-width 0.15s; }
+  .dark .graph-node circle { stroke: #0a0d14; }
+  .graph-node.selected circle { stroke-width: 3; stroke: #5e6bf0; }
+  .graph-node.dim circle, .graph-node.dim text { opacity: 0.15; }
+  .graph-link { stroke-linecap: round; }
+  .graph-label {
+    font: 600 10px Inter, system-ui, sans-serif;
+    fill: #2a3142; pointer-events: none;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.85), 0 0 4px rgba(255,255,255,0.85);
+  }
+  .dark .graph-label { fill: #eef0f4; text-shadow: 0 1px 0 #0a0d14, 0 0 4px #0a0d14; }
+  .type-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+  .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+
+  .ctrl-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.92); color: #3e4759; backdrop-filter: blur(6px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12); cursor: pointer; transition: all 0.15s;
+  }
+  .ctrl-btn:hover { background: #eef1ff; color: #4e58d8; }
+  .dark .ctrl-btn { background: rgba(28,34,48,0.92); color: #bfc6d2; }
+  .dark .ctrl-btn:hover { background: #1d2050; color: #a3b1ff; }
+</style>
+
+<!-- Stats strip -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+  {% for label, key in [('Entities','entities'),('Relations','relations'),('Indexed papers','papers'),('Build progress','progress')] %}
+  <div class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl px-4 py-2.5">
+    <div class="text-[10px] uppercase tracking-wider text-ink-400 font-semibold">{{ label }}</div>
+    <div class="text-xl font-semibold mt-0.5 font-mono" id="stat-{{ key }}">—</div>
+  </div>
+  {% endfor %}
+</div>
+<!-- Build status panel: hidden when idle and untouched, expands during build / error / completion. -->
+<div id="build-panel" class="hidden mb-3 bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl px-4 py-3">
+  <div class="flex items-center gap-3">
+    <span id="build-spinner" class="spinner hidden"></span>
+    <svg id="build-ok"  class="hidden w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+    <svg id="build-err" class="hidden w-4 h-4 text-rose-500"    fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+    <span id="build-msg" class="text-[12px] text-ink-700 dark:text-ink-100 flex-1"></span>
+    <span id="build-counts" class="text-[11px] font-mono text-ink-400"></span>
+    <button onclick="closeBuildPanel()" class="text-ink-300 hover:text-ink-500 text-lg leading-none -mt-1">×</button>
+  </div>
+  <div id="build-bar-wrap" class="hidden mt-2 h-1.5 bg-ink-100 dark:bg-ink-800 rounded-full overflow-hidden">
+    <div id="build-bar" class="h-full bg-brand-500 transition-all duration-500" style="width:0%"></div>
+  </div>
+</div>
+
+<!-- Main 3-column shell -->
+<div class="graph-shell grid grid-cols-12 gap-3">
+
+  <!-- ── Left rail: search + filters + top entities ── -->
+  <aside class="col-span-3 xl:col-span-2 bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl flex flex-col overflow-hidden">
+    <div class="p-3 border-b border-ink-200 dark:border-ink-800">
+      <input id="entity-q" placeholder="Search entities…"
+             oninput="onSearchInput(this.value)"
+             class="w-full bg-ink-50 dark:bg-ink-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-400">
+      <div id="type-filters" class="flex flex-wrap gap-1 mt-2"></div>
+    </div>
+    <div id="entity-list-header" class="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-400 font-semibold border-b border-ink-200 dark:border-ink-800">
+      Top entities
+    </div>
+    <div id="entity-list" class="flex-1 overflow-y-auto scroll-thin p-2 space-y-0.5 text-xs">
+      <div class="text-ink-400 text-center py-6">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- ── Center: canvas ── -->
+  <section class="col-span-9 xl:col-span-7 bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl overflow-hidden relative">
+    <div id="graph-canvas" class="absolute inset-0"></div>
+
+    <!-- Zoom controls -->
+    <div class="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
+      <button class="ctrl-btn" onclick="zoomIn()" title="Zoom in">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+      </button>
+      <button class="ctrl-btn" onclick="zoomOut()" title="Zoom out">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6"/></svg>
+      </button>
+      <button class="ctrl-btn" onclick="resetView()" title="Reset view">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+      </button>
+    </div>
+
+    <!-- Legend + tip -->
+    <div class="absolute bottom-3 left-3 flex items-center gap-3 z-10 bg-white/85 dark:bg-ink-900/85 backdrop-blur px-3 py-1.5 rounded-lg text-[10px] text-ink-500 dark:text-ink-400">
+      <span id="render-stats">—</span>
+      <span class="opacity-60">·</span>
+      <span>drag to pan · scroll to zoom · click node</span>
+    </div>
+
+    <!-- Type legend (top-left) -->
+    <div id="legend" class="absolute top-3 left-3 z-10 bg-white/85 dark:bg-ink-900/85 backdrop-blur px-3 py-2 rounded-lg text-[11px] space-y-1"></div>
+  </section>
+
+  <!-- ── Right rail: inspector (hidden until a node is clicked) ── -->
+  <aside id="inspector" class="col-span-12 xl:col-span-3 bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl flex flex-col overflow-hidden" style="display:none">
+    <div class="p-4 border-b border-ink-200 dark:border-ink-800">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <span id="insp-type" class="type-chip"></span>
+          <h3 id="insp-name" class="font-semibold text-sm mt-1.5 break-words"></h3>
+          <div id="insp-meta" class="text-[10px] text-ink-400 mt-0.5 font-mono"></div>
+        </div>
+        <button onclick="closeInspector()" class="text-ink-300 hover:text-ink-500 text-lg leading-none -mt-1">×</button>
+      </div>
+      <p id="insp-desc" class="text-xs text-ink-600 dark:text-ink-300 mt-3 leading-relaxed"></p>
+      <div class="flex gap-1.5 mt-3">
+        <button id="insp-chat" class="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-medium px-2 py-1.5 rounded-md">Ask LLM →</button>
+        <button id="insp-search" class="flex-1 bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 text-[11px] font-medium px-2 py-1.5 rounded-md">Search papers →</button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto scroll-thin">
+      <!-- Neighbours -->
+      <div class="px-4 pt-3 pb-1.5 text-[10px] uppercase tracking-wider text-ink-400 font-semibold">Connected entities</div>
+      <div id="insp-neighbours" class="px-3 pb-2 flex flex-wrap gap-1.5">
+        <div class="text-[11px] text-ink-400 px-1">—</div>
+      </div>
+      <!-- Chunks -->
+      <div class="px-4 pt-3 pb-1.5 text-[10px] uppercase tracking-wider text-ink-400 font-semibold border-t border-ink-200 dark:border-ink-800">Top passages mentioning this entity</div>
+      <div id="insp-chunks" class="px-3 pb-3 space-y-2">
+        <div class="text-[11px] text-ink-400 px-1">—</div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+// ── Palette ─────────────────────────────────────────────────────
+const TYPE_COLORS = {
+  Chemical:    '#10b981', Material:    '#ef4444', Measurement: '#f59e0b',
+  Method:      '#8b5cf6', Concept:     '#06b6d4', Phenomenon:  '#ec4899',
+  Equipment:   '#84cc16', Substance:   '#22c55e', Property:    '#0ea5e9',
+  Organism:    '#a855f7', Person:      '#fb923c', Organization:'#3b82f6',
+  Location:    '#14b8a6', Time:        '#f97316',
+};
+const DEFAULT_COLOR = '#6b7280';
+const colorOf = (t) => TYPE_COLORS[t] || DEFAULT_COLOR;
+
+// ── State ───────────────────────────────────────────────────────
+let allNodes = [], allEdges = [];
+let activeTypes = new Set();        // empty = show all
+let selectedNodeId = null;
+let sim = null, svg = null, gRoot = null, zoom = null;
+let nodeSel = null, linkSel = null, labelSel = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStats();
+  setInterval(refreshStats, 6000);
+  loadGraph(200);
+  loadTopEntities();
+});
+
+// ── Stats ───────────────────────────────────────────────────────
+let _buildPolling = false;
+let _buildPanelOpen = false;
+let _lastRunning = false;
+
+async function refreshStats() {
+  try {
+    const r = await fetch('/api/rag/graph/stats');
+    const s = await r.json();
+    setStat('entities',  fmt(s.entities));
+    setStat('relations', fmt(s.relations));
+    setStat('papers',    fmt(s.papers_indexed ?? s.papers ?? 0));
+    setStat('progress',  s.running ? `${fmt(s.progress)}/${fmt(s.total)}` : (s.last_extraction_at ? '✓' : '—'));
+    updateBuildPanel(s);
+    _lastRunning = !!s.running;
+  } catch (e) {}
+}
+function setStat(k, v) { const el = document.getElementById('stat-' + k); if (el) el.textContent = v; }
+function fmt(n) { return (n ?? 0).toLocaleString(); }
+
+function updateBuildPanel(s) {
+  const panel = document.getElementById('build-panel');
+  if (!_buildPanelOpen && !s.running && !s.error) return;     // stay collapsed when idle
+  if (s.running || s.error || (_lastRunning && !s.running))   // open on start/finish/error
+    showBuildPanel();
+
+  const spinner = document.getElementById('build-spinner');
+  const ok      = document.getElementById('build-ok');
+  const err     = document.getElementById('build-err');
+  const msg     = document.getElementById('build-msg');
+  const counts  = document.getElementById('build-counts');
+  const barWrap = document.getElementById('build-bar-wrap');
+  const bar     = document.getElementById('build-bar');
+
+  if (s.running) {
+    spinner.classList.remove('hidden'); ok.classList.add('hidden'); err.classList.add('hidden');
+    msg.textContent = s.message || 'Working…';
+    counts.textContent = `${fmt(s.entities||0)} entities · ${fmt(s.relations||0)} relations`;
+    barWrap.classList.remove('hidden');
+    const pct = s.total ? Math.round((s.progress / s.total) * 100) : 0;
+    bar.style.width = pct + '%';
+  } else {
+    spinner.classList.add('hidden');
+    barWrap.classList.add('hidden');
+    if (s.error) {
+      err.classList.remove('hidden'); ok.classList.add('hidden');
+      msg.innerHTML = `<span class="text-rose-600 dark:text-rose-300">${escapeHtml(s.message || s.error)}</span>`;
+    } else if (s.message) {
+      ok.classList.remove('hidden'); err.classList.add('hidden');
+      msg.textContent = s.message;
+    }
+    counts.textContent = `${fmt(s.entities||0)} entities · ${fmt(s.relations||0)} relations`;
+  }
+}
+
+function showBuildPanel() {
+  _buildPanelOpen = true;
+  document.getElementById('build-panel').classList.remove('hidden');
+}
+function closeBuildPanel() {
+  _buildPanelOpen = false;
+  document.getElementById('build-panel').classList.add('hidden');
+}
+
+async function buildGraph(opts) {
+  opts = opts || {};
+  const body = {reset: !!opts.reset, force: !!opts.force};
+  if (!opts.force && !confirm('Re-extract entities + relations across all paper chunks? Takes a long time.')) return;
+
+  showBuildPanel();
+  document.getElementById('build-msg').textContent = 'Requesting build…';
+  document.getElementById('build-spinner').classList.remove('hidden');
+
+  try {
+    const r = await fetch('/api/rag/graph/build', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (r.status === 409) {
+      // Stuck running flag from a prior crash — offer the user a forced retry.
+      const txt = await r.text();
+      document.getElementById('build-msg').innerHTML =
+        `<span class="text-amber-600 dark:text-amber-300">Backend reports a build already in progress. ` +
+        `If you know nothing is actually running (e.g. previous run crashed), <button onclick="buildGraph({force:true})" class="underline">force-reset and retry</button>.</span>`;
+      document.getElementById('build-spinner').classList.add('hidden');
+      return;
+    }
+    if (!r.ok) {
+      document.getElementById('build-msg').innerHTML =
+        `<span class="text-rose-600 dark:text-rose-300">HTTP ${r.status}: ${escapeHtml(await r.text())}</span>`;
+      document.getElementById('build-spinner').classList.add('hidden');
+      return;
+    }
+    // Poll fast while running, then back off
+    _buildPolling = true;
+    fastPoll();
+  } catch (e) {
+    document.getElementById('build-msg').innerHTML =
+      `<span class="text-rose-600 dark:text-rose-300">${escapeHtml(e.message)}</span>`;
+  }
+}
+
+function fastPoll() {
+  if (!_buildPolling) return;
+  refreshStats().then(() => {
+    setTimeout(() => {
+      if (_lastRunning) fastPoll();
+      else _buildPolling = false;
+    }, 1000);
+  });
+}
+
+// ── Search ──────────────────────────────────────────────────────
+let searchTimer = null;
+function onSearchInput(val) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    val = (val || '').trim();
+    if (!val) { loadTopEntities(); return; }
+    searchEntities(val);
+  }, 220);
+}
+
+async function searchEntities(val) {
+  const out = document.getElementById('entity-list');
+  document.getElementById('entity-list-header').textContent = 'Search matches';
+  out.innerHTML = '<div class="text-ink-400 text-center py-4"><span class="spinner"></span></div>';
+  try {
+    const r = await fetch('/api/rag/graph/search?q=' + encodeURIComponent(val));
+    const ents = await r.json();
+    renderEntityList(ents);
+  } catch (e) {
+    out.innerHTML = `<div class="text-rose-500 px-2">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadTopEntities() {
+  const out = document.getElementById('entity-list');
+  document.getElementById('entity-list-header').textContent = 'Top entities';
+  // Use the same graph data we already loaded; if not loaded yet, fetch a slim one.
+  if (allNodes.length) {
+    const top = [...allNodes].sort((a, b) => (b.weight || 0) - (a.weight || 0)).slice(0, 60);
+    renderEntityList(top.map(n => ({entity_id: n.id, name: n.name, type: n.type, chunk_count: n.weight})));
+    return;
+  }
+  out.innerHTML = '<div class="text-ink-400 text-center py-4"><span class="spinner"></span></div>';
+}
+
+function renderEntityList(ents) {
+  const out = document.getElementById('entity-list');
+  if (!ents.length) { out.innerHTML = '<div class="text-ink-400 text-center py-4">No matches</div>'; return; }
+  out.innerHTML = ents.map(e => `
+    <button onclick="focusEntity('${escapeJs(e.entity_id)}', '${escapeJs(e.name || '')}', '${escapeJs(e.type || '')}')"
+      class="w-full text-left px-2 py-1.5 rounded-md hover:bg-ink-50 dark:hover:bg-ink-800 flex items-center gap-2 group">
+      <span class="legend-dot flex-shrink-0" style="background:${colorOf(e.type)}"></span>
+      <span class="truncate flex-1">${escapeHtml(e.name || e.entity_id)}</span>
+      ${e.chunk_count ? `<span class="text-[10px] text-ink-400 font-mono">${fmt(e.chunk_count)}</span>` : ''}
+    </button>
+  `).join('');
+}
+
+// ── Graph load + render ─────────────────────────────────────────
+async function loadGraph(limit) {
+  const canvas = document.getElementById('graph-canvas');
+  canvas.innerHTML = '<div class="flex items-center justify-center h-full text-sm text-ink-400"><span class="spinner mr-2"></span> Loading graph…</div>';
+  let data;
+  try {
+    const r = await fetch('/api/rag/graph/data?limit=' + (limit || 200));
+    data = await r.json();
+  } catch (e) {
+    canvas.innerHTML = `<div class="flex items-center justify-center h-full text-sm text-rose-500">${escapeHtml(e.message)}</div>`; return;
+  }
+  if (!data.nodes?.length) {
+    canvas.innerHTML = `
+      <div class="flex flex-col items-center justify-center h-full text-sm text-ink-400 gap-2 p-6 text-center">
+        <div>The graph is empty.</div>
+        <div class="text-xs">Click "Re-extract" above to build it from your paper chunks.</div>
+      </div>`;
+    return;
+  }
+  allNodes = data.nodes;
+  allEdges = (data.edges || []).filter(e => e.source !== e.target);  // drop self-loops
+  buildLegend();
+  buildTypeFilters();
+  drawForce();
+  loadTopEntities();  // populates left rail from allNodes now that they're loaded
+  document.getElementById('render-stats').textContent =
+    `${fmt(allNodes.length)} nodes · ${fmt(allEdges.length)} edges`;
+}
+
+function buildLegend() {
+  const types = [...new Set(allNodes.map(n => n.type).filter(Boolean))];
+  const legend = document.getElementById('legend');
+  legend.innerHTML = types.slice(0, 8).map(t => `
+    <div class="flex items-center gap-1.5 text-ink-600 dark:text-ink-300">
+      <span class="legend-dot" style="background:${colorOf(t)}"></span>${escapeHtml(t)}
+    </div>`).join('');
+}
+
+function buildTypeFilters() {
+  const types = [...new Set(allNodes.map(n => n.type).filter(Boolean))];
+  const wrap = document.getElementById('type-filters');
+  wrap.innerHTML = types.slice(0, 10).map(t => `
+    <button data-type="${escapeAttr(t)}" onclick="toggleType('${escapeJs(t)}')"
+      class="type-chip border" style="border-color:${colorOf(t)}; color:${colorOf(t)}; background: transparent">${escapeHtml(t)}</button>
+  `).join('');
+}
+
+function toggleType(t) {
+  if (activeTypes.has(t)) activeTypes.delete(t); else activeTypes.add(t);
+  document.querySelectorAll('#type-filters [data-type]').forEach(b => {
+    const isOn = activeTypes.size === 0 || activeTypes.has(b.dataset.type);
+    b.style.background = isOn ? colorOf(b.dataset.type) + '22' : 'transparent';
+    b.style.opacity = isOn ? 1 : 0.35;
+  });
+  applyDim();
+}
+
+function applyDim() {
+  if (!nodeSel) return;
+  nodeSel.classed('dim', d => activeTypes.size > 0 && !activeTypes.has(d.type) && d.id !== selectedNodeId);
+}
+
+function drawForce() {
+  const canvas = document.getElementById('graph-canvas');
+  canvas.innerHTML = '';
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+
+  svg = d3.select(canvas).append('svg').attr('class', 'graph-svg').attr('viewBox', `0 0 ${w} ${h}`);
+  gRoot = svg.append('g');
+
+  // Defs: arrowhead
+  svg.append('defs').append('marker')
+     .attr('id', 'arrow').attr('viewBox', '0 -5 10 10').attr('refX', 16).attr('refY', 0)
+     .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+     .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#94a3b8').attr('opacity', 0.5);
+
+  // Zoom
+  zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', (event) => {
+    gRoot.attr('transform', event.transform);
+    // Hide labels at low zoom
+    gRoot.selectAll('.graph-label').style('display', event.transform.k < 0.55 ? 'none' : null);
+  });
+  svg.call(zoom);
+
+  // Edges
+  const maxW = d3.max(allEdges, e => e.weight || 1) || 1;
+  linkSel = gRoot.append('g').attr('class', 'links').selectAll('line').data(allEdges).enter()
+    .append('line').attr('class', 'graph-link')
+    .attr('stroke', '#94a3b8')
+    .attr('stroke-opacity', d => 0.15 + 0.35 * Math.sqrt((d.weight || 1) / maxW))
+    .attr('stroke-width', d => 0.5 + 1.4 * Math.sqrt((d.weight || 1) / maxW));
+
+  // Nodes (group)
+  const maxNW = d3.max(allNodes, n => n.weight || 1) || 1;
+  const nodes = gRoot.append('g').attr('class', 'nodes').selectAll('g').data(allNodes).enter()
+    .append('g').attr('class', 'graph-node')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.25).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }))
+    .on('click', (e, d) => { e.stopPropagation(); selectNode(d); });
+
+  nodes.append('circle')
+    .attr('r', d => 4 + 8 * Math.sqrt((d.weight || 1) / maxNW))
+    .attr('fill', d => d.color || colorOf(d.type))
+    .attr('opacity', 0.92);
+
+  nodes.append('text').attr('class', 'graph-label')
+    .text(d => (d.name || '').slice(0, 28))
+    .attr('x', d => 5 + 8 * Math.sqrt((d.weight || 1) / maxNW))
+    .attr('y', 3);
+
+  nodeSel = nodes;
+  labelSel = nodes.selectAll('.graph-label');
+
+  // Background click clears selection
+  svg.on('click', () => { closeInspector(); });
+
+  // Simulation
+  sim = d3.forceSimulation(allNodes)
+    .force('link', d3.forceLink(allEdges).id(d => d.id).distance(d => 60 + 20 / Math.sqrt(d.weight || 1)).strength(0.35))
+    .force('charge', d3.forceManyBody().strength(-160))
+    .force('collide', d3.forceCollide().radius(d => 8 + 8 * Math.sqrt((d.weight || 1) / maxNW)))
+    .force('center', d3.forceCenter(w / 2, h / 2))
+    .alphaDecay(0.04);
+
+  sim.on('tick', () => {
+    linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+           .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    nodes.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+}
+
+// ── Zoom controls ──────────────────────────────────────────────
+function zoomIn()  { svg && svg.transition().duration(220).call(zoom.scaleBy, 1.4); }
+function zoomOut() { svg && svg.transition().duration(220).call(zoom.scaleBy, 1 / 1.4); }
+function resetView() {
+  if (!svg) return;
+  svg.transition().duration(350).call(zoom.transform, d3.zoomIdentity);
+}
+
+// ── Selection / Inspector ──────────────────────────────────────
+async function selectNode(node) {
+  selectedNodeId = node.id;
+  nodeSel.classed('selected', d => d.id === node.id);
+  await openInspector(node.id, node);
+}
+
+async function focusEntity(entityId, name, type) {
+  // If the entity is in the current graph, pan to it. Otherwise just open the inspector.
+  const existing = allNodes.find(n => n.id === entityId);
+  if (existing && svg && existing.x != null) {
+    const w = document.getElementById('graph-canvas').clientWidth;
+    const h = document.getElementById('graph-canvas').clientHeight;
+    const t = d3.zoomIdentity.translate(w / 2 - existing.x * 1.5, h / 2 - existing.y * 1.5).scale(1.5);
+    svg.transition().duration(450).call(zoom.transform, t);
+    selectNode(existing);
+  } else {
+    await openInspector(entityId, {name, type});
+  }
+}
+
+async function openInspector(entityId, hint) {
+  const ins = document.getElementById('inspector');
+  ins.style.display = 'flex';
+  document.getElementById('insp-name').textContent = hint?.name || '…';
+  document.getElementById('insp-type').textContent = hint?.type || '';
+  document.getElementById('insp-type').style.cssText =
+    `background:${colorOf(hint?.type)}22;color:${colorOf(hint?.type)};border:1px solid ${colorOf(hint?.type)}55`;
+  document.getElementById('insp-meta').textContent = entityId.slice(0, 8) + '…';
+  document.getElementById('insp-desc').textContent = '';
+  document.getElementById('insp-neighbours').innerHTML = '<div class="text-[11px] text-ink-400 px-1">Loading…</div>';
+  document.getElementById('insp-chunks').innerHTML    = '<div class="text-[11px] text-ink-400 px-1">Loading…</div>';
+
+  try {
+    const r = await fetch('/api/rag/graph/entity/' + encodeURIComponent(entityId));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const e = d.entity || {};
+    document.getElementById('insp-name').textContent = e.name || entityId;
+    document.getElementById('insp-type').textContent = e.type || 'Unknown';
+    document.getElementById('insp-type').style.cssText =
+      `background:${colorOf(e.type)}22;color:${colorOf(e.type)};border:1px solid ${colorOf(e.type)}55`;
+    document.getElementById('insp-meta').textContent = `${e.chunk_count || 0} mentions · ${entityId.slice(0, 8)}…`;
+    document.getElementById('insp-desc').textContent = e.description || '—';
+
+    // Action buttons
+    const q = encodeURIComponent(e.name || '');
+    document.getElementById('insp-chat').onclick   = () => location.href = '/research/chat?q=' + q;
+    document.getElementById('insp-search').onclick = () => location.href = '/research/search?q=' + q;
+
+    // Neighbours
+    const nbWrap = document.getElementById('insp-neighbours');
+    if (!d.neighbours?.length) nbWrap.innerHTML = '<div class="text-[11px] text-ink-400 px-1">No connections.</div>';
+    else nbWrap.innerHTML = d.neighbours.map(n => `
+      <button onclick="focusEntity('${escapeJs(n.entity_id)}','${escapeJs(n.name||'')}','${escapeJs(n.type||'')}')"
+        class="type-chip border hover:scale-105 transition"
+        style="border-color:${colorOf(n.type)}55;color:${colorOf(n.type)};background:${colorOf(n.type)}15"
+        title="${escapeAttr((n.relations||[]).join(', '))}">
+        ${escapeHtml((n.name||n.entity_id).slice(0, 28))}
+      </button>`).join('');
+
+    // Chunks
+    const chWrap = document.getElementById('insp-chunks');
+    if (!d.chunks?.length) chWrap.innerHTML = '<div class="text-[11px] text-ink-400 px-1">No linked passages.</div>';
+    else chWrap.innerHTML = d.chunks.map(c => `
+      <article class="border border-ink-200 dark:border-ink-800 rounded-md p-2 hover:border-brand-300 dark:hover:border-brand-700">
+        <div class="font-medium text-[11px] leading-snug">${escapeHtml((c.title || c.paper_id).slice(0, 70))}</div>
+        <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(c.paper_id)} · ${escapeHtml(c.section_name || '')} · p.${c.page_start || '?'}</div>
+        <p class="text-[11px] text-ink-600 dark:text-ink-300 mt-1 leading-relaxed">${escapeHtml((c.snippet || '').slice(0, 240))}${(c.snippet || '').length > 240 ? '…' : ''}</p>
+        <div class="flex gap-1 mt-1.5">
+          <a href="/api/rag/pdf?id=${encodeURIComponent(c.paper_id)}" target="_blank"
+             class="text-[10px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-1.5 py-0.5 rounded">PDF ↗</a>
+        </div>
+      </article>`).join('');
+  } catch (err) {
+    document.getElementById('insp-neighbours').innerHTML = `<div class="text-rose-500 text-[11px] px-1">${escapeHtml(err.message)}</div>`;
+    document.getElementById('insp-chunks').innerHTML = '';
+  }
+}
+
+function closeInspector() {
+  document.getElementById('inspector').style.display = 'none';
+  selectedNodeId = null;
+  if (nodeSel) nodeSel.classed('selected', false);
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+function escapeJs(s)   { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+</script>
+{% endblock %}

@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit experiment' if mode == 'edit' else 'New experiment' }}{% endblock %}
+{% block heading %}{{ 'Edit experiment' if mode == 'edit' else 'New experiment' }}{% endblock %}
+{% block subtitle %}{% if mode == 'edit' %}{{ exp.id }}{% else %}Record a past run or schedule a new one{% endif %}{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-12 gap-5">
+  <!-- ── Form (left, 8/12) ───────────────────────────── -->
+  <form id="exp-form" onsubmit="event.preventDefault(); saveExperiment()" class="col-span-12 xl:col-span-8 space-y-4">
+
+    <!-- Basics tile -->
+    <div class="tile space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Name <span class="text-rose-500">*</span></label>
+        <input id="f-name" name="name" type="text" required
+               value="{{ exp.name if exp else '' }}"
+               placeholder="e.g. Nanobubble generation @ 100 mM NaCl"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Status</label>
+          <select id="f-status" class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+            {% for s in statuses %}
+            <option value="{{ s }}" {% if exp and exp.status == s %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Ran on</label>
+          <input id="f-ran-on" type="date" value="{{ exp.ran_on if exp and exp.ran_on else '' }}"
+                 class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Scheduled for</label>
+          <input id="f-scheduled-for" type="date" value="{{ exp.scheduled_for if exp and exp.scheduled_for else '' }}"
+                 class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Manuscript</label>
+        <select id="f-manuscript" class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+          <option value="">— Unassigned —</option>
+          {% for m in manuscripts %}
+          <option value="{{ m.id }}"
+            {% if (exp and exp.manuscript_id == m.id) or (preselect_ms == m.id) %}selected{% endif %}>
+            {{ m.title[:80] }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Tags</label>
+        <input id="f-tags" type="text"
+               value="{{ exp.tags | join(', ') if exp else '' }}"
+               placeholder="NTA, foam stability, surfactant"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+        <p class="text-[11px] text-ink-400 mt-1">Comma-separated</p>
+      </div>
+    </div>
+
+    <!-- Protocol tile -->
+    <div class="tile space-y-4">
+      <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-100">Protocol</h3>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Objective</label>
+        <textarea id="f-objective" rows="2" placeholder="What were you trying to find out?"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">{{ exp.objective if exp else '' }}</textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Methodology</label>
+        <textarea id="f-methodology" rows="4" placeholder="Step-by-step procedure"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">{{ exp.methodology if exp else '' }}</textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Equipment</label>
+        <textarea id="f-equipment" rows="2" placeholder="Instruments used, models, calibration notes"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">{{ exp.equipment if exp else '' }}</textarea>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-ink-700 dark:text-ink-200">Conditions</label>
+          <button type="button" onclick="addCondition()" class="text-[11px] text-brand-600 dark:text-brand-300 hover:underline">+ Add row</button>
+        </div>
+        <div id="conditions-list" class="space-y-1.5"></div>
+        <p class="text-[11px] text-ink-400 mt-1.5">Key–value pairs. Stored as JSON. e.g. <span class="font-mono">salinity = 100 mM</span></p>
+      </div>
+    </div>
+
+    <!-- Results tile -->
+    <div class="tile space-y-4">
+      <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-100">Results</h3>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Observations</label>
+        <textarea id="f-observations" rows="3" placeholder="What you saw during the run"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">{{ exp.observations if exp else '' }}</textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Results <span class="text-[11px] text-ink-400 font-normal">(markdown)</span></label>
+        <textarea id="f-results" rows="6" placeholder="Headline finding, numbers, plots references"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm font-mono">{{ exp.results_md if exp else '' }}</textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Side notes <span class="text-[11px] text-ink-400 font-normal">(markdown)</span></label>
+        <textarea id="f-notes" rows="4" placeholder="Anything else worth remembering"
+                  class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm font-mono">{{ exp.notes_md if exp else '' }}</textarea>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="flex gap-3 items-center">
+      <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl">
+        {{ 'Save changes' if mode == 'edit' else 'Save experiment' }}
+      </button>
+      {% if mode == 'edit' %}
+      <a href="/experiments/{{ exp.id }}" class="text-ink-500 hover:text-ink-700 dark:hover:text-ink-200 text-sm font-medium px-4 py-2">Cancel</a>
+      <button type="button" onclick="deleteExperiment()" class="ml-auto text-sm text-rose-600 hover:text-rose-700 px-3 py-2">Delete</button>
+      {% else %}
+      <a href="/experiments" class="text-ink-500 hover:text-ink-700 dark:hover:text-ink-200 text-sm font-medium px-4 py-2">Cancel</a>
+      {% endif %}
+      <span id="save-status" class="text-xs text-ink-400 ml-auto"></span>
+    </div>
+  </form>
+
+  <!-- ── Linked papers (right, 4/12) ────────────────── -->
+  <aside class="col-span-12 xl:col-span-4 space-y-4">
+    <div class="tile">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-100">Linked papers</h3>
+        <span id="linked-count" class="chip">0</span>
+      </div>
+      <div id="linked-list" class="space-y-2 max-h-72 overflow-y-auto scroll-thin">
+        <div class="text-[11px] text-ink-400 text-center py-3">No papers linked yet.</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <h3 class="text-sm font-semibold text-ink-800 dark:text-ink-100 mb-2">Find papers from RAG</h3>
+      <div class="flex gap-2 mb-2">
+        <input id="paper-q" type="text" placeholder="topic, method, …"
+               onkeydown="if(event.key==='Enter'){event.preventDefault(); searchPapers();}"
+               class="flex-1 bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+        <button type="button" onclick="searchPapers()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm px-3 rounded-lg">Search</button>
+      </div>
+      <div id="paper-results" class="space-y-2 max-h-72 overflow-y-auto scroll-thin">
+        <div class="text-[11px] text-ink-400 text-center py-3">Search and click to attach.</div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MODE = "{{ mode }}";
+const EXP_ID = "{{ exp.id if exp else '' }}";
+let CONDITIONS = {{ exp.conditions | tojson if exp else '{}' }};
+let LINKED = {{ exp.linked_papers | tojson if exp else '[]' }};
+let PAPER_META = {};  // paper_id -> {title, paper_id}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderConditions();
+  renderLinked();
+});
+
+// ── Conditions key-value editor ───────────────────────
+function renderConditions() {
+  const wrap = document.getElementById('conditions-list');
+  const entries = Object.entries(CONDITIONS);
+  wrap.innerHTML = entries.length === 0 ? '' : entries.map(([k, v], i) => rowHtml(k, v, i)).join('');
+  if (entries.length === 0) addCondition();
+}
+function rowHtml(k, v, i) {
+  return `
+    <div class="flex gap-2" data-row="${i}">
+      <input type="text" placeholder="key (e.g. salinity)"
+             value="${escapeAttr(k)}" onchange="updateCondition(${i}, 'k', this.value)"
+             class="flex-1 bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-md px-2 py-1.5 text-sm">
+      <input type="text" placeholder="value (e.g. 100 mM)"
+             value="${escapeAttr(v)}" onchange="updateCondition(${i}, 'v', this.value)"
+             class="flex-1 bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-md px-2 py-1.5 text-sm">
+      <button type="button" onclick="removeCondition(${i})" class="text-ink-300 hover:text-rose-500 text-lg leading-none px-2">×</button>
+    </div>`;
+}
+function addCondition() {
+  const wrap = document.getElementById('conditions-list');
+  const i = wrap.children.length;
+  const el = document.createElement('div');
+  el.innerHTML = rowHtml('', '', i);
+  wrap.appendChild(el.firstElementChild);
+}
+function updateCondition(i, which, val) {
+  // Rebuild from current DOM order each time, so renames keep order stable.
+  const rows = document.querySelectorAll('#conditions-list > div');
+  const next = {};
+  rows.forEach(r => {
+    const ins = r.querySelectorAll('input');
+    const k = ins[0].value.trim();
+    if (k) next[k] = ins[1].value;
+  });
+  CONDITIONS = next;
+}
+function removeCondition(i) {
+  document.querySelector(`#conditions-list > div[data-row="${i}"]`)?.remove();
+  updateCondition();
+}
+
+// ── Linked papers ─────────────────────────────────────
+function renderLinked() {
+  const wrap = document.getElementById('linked-list');
+  document.getElementById('linked-count').textContent = LINKED.length;
+  if (!LINKED.length) {
+    wrap.innerHTML = '<div class="text-[11px] text-ink-400 text-center py-3">No papers linked yet.</div>'; return;
+  }
+  wrap.innerHTML = LINKED.map(pid => {
+    const meta = PAPER_META[pid] || {};
+    return `
+      <div class="border border-ink-200 dark:border-ink-800 rounded-md p-2 flex items-start gap-2">
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-medium truncate">${escapeHtml(meta.title || pid)}</div>
+          <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(pid)}</div>
+        </div>
+        <button type="button" onclick="unlinkPaper('${escapeJs(pid)}')" class="text-ink-300 hover:text-rose-500 text-sm leading-none">×</button>
+      </div>`;
+  }).join('');
+}
+function unlinkPaper(pid) {
+  LINKED = LINKED.filter(x => x !== pid);
+  renderLinked();
+}
+
+async function searchPapers() {
+  const q = document.getElementById('paper-q').value.trim();
+  if (!q) return;
+  const out = document.getElementById('paper-results');
+  out.innerHTML = '<div class="text-[11px] text-ink-400 text-center py-2"><span class="spinner"></span> Searching…</div>';
+  try {
+    const r = await fetch('/api/rag/search', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: q, top_k: 10})
+    });
+    const d = await r.json();
+    if (!d.results?.length) { out.innerHTML = '<div class="text-[11px] text-ink-400 text-center py-3">No matches.</div>'; return; }
+    out.innerHTML = d.results.map(r => {
+      PAPER_META[r.paper_id] = {title: r.title, paper_id: r.paper_id};
+      const already = LINKED.includes(r.paper_id);
+      return `
+        <button type="button" onclick="linkPaper('${escapeJs(r.paper_id)}', this)" ${already ? 'disabled' : ''}
+          class="w-full text-left border border-ink-200 dark:border-ink-800 rounded-md p-2 hover:border-brand-400 transition ${already ? 'opacity-50 cursor-not-allowed' : ''}">
+          <div class="text-xs font-medium truncate">${escapeHtml((r.title || r.paper_id).slice(0, 70))}</div>
+          <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(r.paper_id)} · ${escapeHtml(r.section_name || '')}</div>
+        </button>`;
+    }).join('');
+  } catch (e) {
+    out.innerHTML = `<div class="text-rose-500 text-xs">${escapeHtml(e.message)}</div>`;
+  }
+}
+function linkPaper(pid) {
+  if (LINKED.includes(pid)) return;
+  LINKED.push(pid);
+  renderLinked();
+  searchPapers();  // refresh result list to show "already linked" state
+}
+
+// ── Save / delete ─────────────────────────────────────
+async function saveExperiment() {
+  // Re-collect conditions from DOM in case user typed but didn't blur
+  updateCondition();
+
+  const payload = {
+    manuscript_id: document.getElementById('f-manuscript').value || null,
+    name: document.getElementById('f-name').value.trim(),
+    ran_on: document.getElementById('f-ran-on').value || null,
+    scheduled_for: document.getElementById('f-scheduled-for').value || null,
+    status: document.getElementById('f-status').value,
+    objective: document.getElementById('f-objective').value || null,
+    methodology: document.getElementById('f-methodology').value || null,
+    conditions_json: JSON.stringify(CONDITIONS),
+    equipment: document.getElementById('f-equipment').value || null,
+    observations: document.getElementById('f-observations').value || null,
+    results_md: document.getElementById('f-results').value || null,
+    notes_md: document.getElementById('f-notes').value || null,
+    tags_json: JSON.stringify(
+      document.getElementById('f-tags').value.split(',').map(t => t.trim()).filter(Boolean)
+    ),
+    linked_papers_json: JSON.stringify(LINKED),
+  };
+  if (!payload.name) { alert('Name is required.'); return; }
+
+  document.getElementById('save-status').textContent = 'Saving…';
+  try {
+    const url    = MODE === 'edit' ? '/api/experiments/' + EXP_ID : '/api/experiments';
+    const method = MODE === 'edit' ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + await r.text());
+    const d = await r.json();
+    const newId = d.id || EXP_ID;
+    window.location.href = '/experiments/' + newId;
+  } catch (e) {
+    document.getElementById('save-status').textContent = '';
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function deleteExperiment() {
+  if (!confirm('Delete this experiment? This is permanent.')) return;
+  try {
+    await fetch('/api/experiments/' + EXP_ID, { method: 'DELETE' });
+    window.location.href = '/experiments';
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+function escapeJs(s)   { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+</script>
+{% endblock %}

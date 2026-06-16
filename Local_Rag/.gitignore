@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Data (PDFs are user data, not code)
+data/raw/
+data/processed/
+data/chunks/
+
+# Database (generated at runtime — root-level only, not src/db/)
+/db/
+
+# Env
+.env
+
+# OS
+.DS_Store
+._*
+.AppleDouble
+*.swp

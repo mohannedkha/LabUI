@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Schedule{% endblock %}
+{% block heading %}Schedule — {{ month_label }}{% endblock %}
+{% block subtitle %}{{ experiment_count }} scheduled this month{% endblock %}
+{% block header_actions %}
+  <a href="/experiments/new" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Schedule one
+  </a>
+{% endblock %}
+
+{% block content %}
+<!-- Month switcher -->
+<div class="tile mb-4 flex items-center justify-between flex-wrap gap-3">
+  <div class="flex items-center gap-2">
+    <a href="/schedule?month={{ prev_month }}" class="bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-100 px-3 py-1.5 rounded-lg text-sm">←</a>
+    <div class="text-lg font-semibold text-ink-800 dark:text-ink-100 px-2">{{ month_label }}</div>
+    <a href="/schedule?month={{ next_month }}" class="bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-100 px-3 py-1.5 rounded-lg text-sm">→</a>
+    <a href="/schedule" class="text-[11px] text-brand-600 dark:text-brand-300 hover:underline ml-2">Today</a>
+  </div>
+  <div class="flex items-center gap-4 text-[11px] text-ink-500 dark:text-ink-400">
+    <span class="flex items-center gap-1.5"><span class="chip chip-brand">planned</span></span>
+    <span class="flex items-center gap-1.5"><span class="chip chip-warn">in progress</span></span>
+    <span class="flex items-center gap-1.5"><span class="chip chip-success">done</span></span>
+  </div>
+</div>
+
+<!-- Calendar -->
+<div class="tile tile-flush overflow-hidden">
+  <!-- Day-of-week header -->
+  <div class="grid grid-cols-7 bg-ink-50 dark:bg-ink-950">
+    {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+    <div class="px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-ink-400 text-center">{{ d }}</div>
+    {% endfor %}
+  </div>
+  <!-- Weeks -->
+  <div class="grid grid-cols-7" style="grid-auto-rows: minmax(120px, auto)">
+    {% set status_chip = {
+      'planned':     'chip-brand',
+      'in_progress': 'chip-warn',
+      'done':        'chip-success',
+      'failed':      'chip-danger',
+      'abandoned':   'chip',
+    } %}
+    {% for week in weeks %}
+      {% for cell in week %}
+      <div class="border-t border-l border-ink-100 dark:border-ink-800 px-2 py-2 flex flex-col gap-1
+                  {% if not cell.in_month %}bg-ink-50/60 dark:bg-ink-950/60{% endif %}">
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-semibold
+                      {% if cell.is_today %}bg-brand-600 text-white rounded-full w-6 h-6 flex items-center justify-center
+                      {% elif cell.in_month %}text-ink-700 dark:text-ink-200
+                      {% else %}text-ink-300 dark:text-ink-700{% endif %}">{{ cell.day }}</div>
+          {% if cell.experiments %}
+          <span class="text-[10px] font-mono text-ink-400">{{ cell.experiments | length }}</span>
+          {% endif %}
+        </div>
+        {% for e in cell.experiments[:3] %}
+        <a href="/experiments/{{ e.id }}"
+           class="block bg-brand-50 dark:bg-brand-950 hover:bg-brand-100 dark:hover:bg-brand-900 px-2 py-1 rounded text-[11px] truncate"
+           title="{{ e.name }}">
+          <span class="font-medium text-brand-800 dark:text-brand-200">{{ e.name[:30] }}</span>
+        </a>
+        {% endfor %}
+        {% if cell.experiments | length > 3 %}
+        <a href="/experiments" class="text-[10px] text-ink-400 hover:underline">+{{ (cell.experiments | length) - 3 }} more</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

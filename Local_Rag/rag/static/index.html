@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Papers RAG — Research Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<link rel="stylesheet" href="style.css?v=6">
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🔬</div>
+    <div>
+      <div class="logo-text">Papers RAG</div>
+      <div class="logo-sub">Local Research Assistant · gemma3:12b</div>
+    </div>
+  </div>
+  <div id="status-bar">
+    <span><span class="status-dot" id="dot-ollama"></span>Ollama</span>
+    <span><span class="status-dot" id="dot-embed"></span>Embeddings</span>
+    <span><span class="status-dot" id="dot-index"></span>Index</span>
+    <span id="paper-count" style="color:var(--text-dim)">— papers</span>
+    <span id="ingest-indicator">
+      <span class="status-dot pulse"></span>
+      <span id="ingest-msg">Indexing…</span>
+    </span>
+  </div>
+  <div class="header-right">
+    <button class="btn-panel-toggle" id="settings-btn" onclick="openSettingsModal()" title="Settings">
+      ⚙️ Settings
+    </button>
+    <button class="btn-panel-toggle active" id="panel-toggle-btn"
+      onclick="toggleRightPanel()" title="Toggle History & Memory panel">
+      💬 History
+    </button>
+  </div>
+</header>
+
+<!-- ── App shell ── -->
+<div class="app-shell">
+
+  <!-- ── Left sidebar ── -->
+  <nav class="sidebar">
+    <div class="sidebar-section-label">Agents</div>
+    <div class="sidebar-scroll" id="agent-list"></div>
+    <div class="sidebar-bottom" id="sidebar-stats">Loading…</div>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <div class="main-content">
+    <div class="agent-header">
+      <span class="agent-header-icon" id="ah-icon">💬</span>
+      <span class="agent-header-name" id="ah-name">Academic Chat</span>
+      <span class="agent-header-desc" id="ah-desc">Ask anything about your papers</span>
+      <button class="new-chat-btn" onclick="newChat()" title="Start a new chat session">＋ New Chat</button>
+    </div>
+
+    <!-- CHAT VIEW -->
+    <div class="view active" id="view-chat">
+      <div class="chat-area" id="chat-area">
+        <div class="empty-state" id="empty-chat">
+          <div class="empty-icon" id="empty-icon">🧪</div>
+          <div class="empty-title" id="empty-title">Ask anything about your papers</div>
+          <div class="empty-sub" id="empty-sub">The assistant retrieves relevant excerpts and generates a grounded answer with citations. Attach images or PDFs for multimodal queries.</div>
+          <div class="example-queries" id="example-queries"></div>
+        </div>
+      </div>
+      <div class="input-bar">
+        <div id="upload-strip"></div>
+        <div class="input-row">
+          <input type="file" id="file-input" style="display:none"
+            accept="image/*,.pdf,.txt,.md" multiple onchange="handleFileSelect(event)">
+          <button class="btn-icon" title="Attach image or document"
+            onclick="document.getElementById('file-input').click()">📎</button>
+          <textarea id="ask-input" rows="1"
+            placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+            oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+          <button class="btn" id="ask-btn" onclick="sendQuery()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEARCH VIEW -->
+    <div class="view" id="view-search">
+      <div class="search-top">
+        <input type="text" id="search-input"
+          placeholder="Search papers by topic, method, or concept…"
+          onkeydown="if(event.key==='Enter') doSearch()">
+        <button class="btn" onclick="doSearch()">Search</button>
+      </div>
+      <div id="search-results" class="search-results">
+        <div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <div class="empty-title">Semantic paper search</div>
+          <div class="empty-sub">Returns the most relevant chunks ranked by meaning + BM25 keywords.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTES VIEW -->
+    <div class="view" id="view-notes">
+      <div class="notes-list-panel">
+        <div class="notes-list-header">
+          <span class="notes-list-title">📓 My Notes</span>
+          <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px" onclick="loadNotes()">↻</button>
+        </div>
+        <div class="notes-list-items" id="notes-list-items">
+          <div style="padding:16px;color:var(--text-dim);font-size:12px;text-align:center">No notes yet.</div>
+        </div>
+      </div>
+      <div class="notes-detail-panel">
+        <div class="notes-detail-header">
+          <span class="notes-detail-title" id="notes-detail-title">Select a note</span>
+          <a class="btn btn-ghost" id="notes-export-link" style="font-size:11px;padding:5px 10px;display:none" download>⬇ Export</a>
+          <button class="btn btn-ghost" id="notes-delete-btn" style="font-size:11px;padding:5px 10px;color:var(--red);display:none" onclick="deleteNote()">🗑 Delete</button>
+        </div>
+        <div class="notes-detail-body">
+          <div class="notes-empty-state" id="notes-empty-msg">
+            <div style="font-size:36px">📓</div>
+            <div style="font-size:14px;color:var(--text)">No note selected</div>
+            <div style="font-size:12px">Click a note, or save an answer from chat.</div>
+          </div>
+          <div class="answer-bubble" id="notes-viewer-content" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Knowledge Graph view ── -->
+    <div class="view" id="view-graph">
+      <div id="graph-toolbar">
+        <div id="graph-stats-bar">Loading graph stats…</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="graph-search-input" placeholder="Search entities…" oninput="debounceGraphSearch(this.value)" style="width:200px;padding:6px 10px;font-size:12px">
+          <select id="graph-type-filter" onchange="applyGraphFilter()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+            <option value="">All types</option>
+            <option value="Chemical">Chemical</option>
+            <option value="Method">Method</option>
+            <option value="Concept">Concept</option>
+            <option value="Measurement">Measurement</option>
+            <option value="Material">Material</option>
+          </select>
+          <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="loadGraphData()">↻ Reload</button>
+          <button class="btn" id="graph-build-btn" style="font-size:12px;padding:6px 14px" onclick="buildGraph()">⚡ Build Graph</button>
+        </div>
+      </div>
+      <!-- Legend -->
+      <div id="graph-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span>Chemical</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Method</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#8b5cf6"></span>Concept</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Measurement</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Material</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#6b7280"></span>Other</span>
+      </div>
+      <!-- SVG canvas -->
+      <svg id="graph-svg"></svg>
+      <!-- Entity detail panel -->
+      <div id="graph-detail" style="display:none">
+        <div id="graph-detail-header">
+          <div>
+            <span id="graph-detail-type-badge" class="entity-type-badge"></span>
+            <span id="graph-detail-name" style="font-size:15px;font-weight:700"></span>
+          </div>
+          <button onclick="closeGraphDetail()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">✕</button>
+        </div>
+        <div id="graph-detail-desc" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+        <div id="graph-detail-relations"></div>
+        <div id="graph-detail-papers" style="margin-top:8px"></div>
+      </div>
+      <!-- Progress overlay -->
+      <div id="graph-progress" style="display:none">
+        <div id="graph-progress-inner">
+          <div style="font-size:24px;margin-bottom:8px">⚙️</div>
+          <div id="graph-progress-msg" style="font-weight:600;margin-bottom:6px">Building graph…</div>
+          <div id="graph-progress-bar-wrap"><div id="graph-progress-bar"></div></div>
+          <div id="graph-progress-sub" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+
+  <!-- ── Right panel (History + Memory) ── -->
+  <div class="right-panel" id="right-panel">
+
+    <div class="rp-header">
+      <button class="rp-tab active" id="rp-tab-history" onclick="switchRpTab('history')">💬 History</button>
+      <button class="rp-tab" id="rp-tab-memory" onclick="switchRpTab('memory')">🧠 Memory</button>
+    </div>
+
+    <!-- History tab -->
+    <div class="rp-view active" id="rp-history">
+      <div class="rp-history-top">
+        <button class="new-session-btn" onclick="newChat()">＋ New Chat</button>
+      </div>
+      <div class="rp-sessions" id="rp-sessions">
+        <div class="rp-empty">No chat history yet.<br>Start a conversation to save it here.</div>
+      </div>
+    </div>
+
+    <!-- Memory tab -->
+    <div class="rp-view" id="rp-memory">
+      <div class="rp-memory-top">
+        <input class="rp-memory-search" id="memory-search-input"
+          placeholder="🔍 Search memory…"
+          oninput="debounceMemorySearch(this.value)"
+          onkeydown="if(event.key==='Enter') searchMemory(this.value)">
+      </div>
+      <div class="rp-memories" id="rp-memories">
+        <div class="rp-empty">No memories yet.<br>The AI automatically extracts key findings from your conversations.</div>
+      </div>
+    </div>
+
+  </div><!-- /right-panel -->
+
+</div><!-- /app-shell -->
+
+<!-- ── Paper modal ── -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Paper</div>
+      <button class="modal-close" onclick="document.getElementById('modal-overlay').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+<!-- ── Settings modal ── -->
+<div class="modal-overlay" id="settings-overlay" onclick="closeSettingsModal(event)">
+  <div class="modal" style="max-width: 500px;">
+    <div class="modal-header">
+      <div class="modal-title">⚙️ Settings</div>
+      <button class="modal-close" onclick="document.getElementById('settings-overlay').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 24px;">
+      <div class="settings-group">
+        <label style="font-weight: 600; font-size: 13px;">LLM Provider</label>
+        <select id="settings-provider" onchange="toggleSettingsFields()" style="width: 100%; padding: 10px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); margin-top: 8px; margin-bottom: 16px;">
+          <option value="ollama">Ollama (Local)</option>
+          <option value="lmstudio">LM Studio (Remote GPU)</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label style="font-weight: 600; font-size: 13px;">Base URL</label>
+        <input type="text" id="settings-url" style="width: 100%; padding: 10px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); margin-top: 8px; margin-bottom: 16px;">
+      </div>
+      <div class="settings-group">
+        <label style="font-weight: 600; font-size: 13px;">Model Name</label>
+        <input type="text" id="settings-model" style="width: 100%; padding: 10px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); margin-top: 8px; margin-bottom: 16px;" placeholder="e.g. gemma2:9b or local-model">
+        <div style="color: var(--text-dim); font-size: 11px; margin-top: -8px;">LMStudio usually ignores this and uses the loaded model.</div>
+      </div>
+      <div style="text-align: right; margin-top: 20px;">
+        <button class="btn" onclick="saveSettings()">Save Configuration</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js?v=8"></script>
+</body>
+</html>

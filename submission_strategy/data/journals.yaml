@@ -1,0 +1,393 @@
+# Journal set — 23 venues covering colloid science, surface science,
+# petroleum/energy engineering, and nanomaterials.
+
+journals:
+  - id: langmuir
+    name: Langmuir
+    publisher: American Chemical Society
+    publisher_family: acs
+    issn_print: "0743-7463"
+    issn_electronic: "1520-5827"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 4.2
+    society_affiliation: acs
+    submission_url: https://pubs.acs.org/journal/langd5
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=langd5"
+    scope_statement: >
+      Langmuir publishes fundamental and applied studies in surface and colloid
+      science, self-assembly, thin films, soft matter, nanomaterials, and
+      biomolecular interfaces.
+
+  - id: jcis
+    name: Journal of Colloid and Interface Science
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0021-9797"
+    issn_electronic: "1095-7103"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 9.8
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/yjcis/
+    abstract_format: structured_hmf
+    scope_statement: >
+      JCIS publishes original research on the basis of materials presented
+      within five broad categories: colloids, surfaces, and interfaces;
+      nanoparticles and nanomaterials; biological and biomimetic systems;
+      energy and environment; soft matter.
+
+  - id: colsurfa
+    name: Colloids and Surfaces A
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0927-7757"
+    issn_electronic: "1873-4359"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 5.0
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/colsua/
+    abstract_format: flat
+    scope_statement: >
+      Colloids and Surfaces A publishes research on the physicochemical
+      aspects of colloid and interface science, including foams, emulsions,
+      aerosols, and dispersions.
+
+  - id: acsnano
+    name: ACS Nano
+    publisher: American Chemical Society
+    publisher_family: acs
+    issn_print: "1936-0851"
+    issn_electronic: "1936-086X"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 14.8
+    society_affiliation: acs
+    submission_url: https://pubs.acs.org/journal/ancac3
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=ancac3"
+    scope_statement: >
+      ACS Nano covers research in all areas of nanoscience and nanotechnology.
+
+  - id: cej
+    name: Chemical Engineering Journal
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "1385-8947"
+    issn_electronic: "1873-3212"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 10.0
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/cel/
+    abstract_format: flat
+    scope_statement: >
+      CEJ focuses on chemical engineering developments, process intensification,
+      product and process design, and energy/environmental applications.
+
+  - id: softmatter
+    name: Soft Matter
+    publisher: Royal Society of Chemistry
+    publisher_family: rsc
+    issn_print: "1744-683X"
+    issn_electronic: "1744-6848"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 2.4
+    society_affiliation: rsc
+    submission_url: https://www.rsc.org/journals-books-databases/find-an-article/soft-matter/
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://feeds.rsc.org/rss/sm"
+    scope_statement: >
+      Soft Matter covers research on materials that are readily deformable by
+      thermal fluctuations, including polymers, colloids, liquid crystals,
+      foams, gels, emulsions, and biomaterials.
+
+  - id: energyfuels
+    name: Energy & Fuels
+    publisher: American Chemical Society
+    publisher_family: acs
+    issn_print: "0887-0624"
+    issn_electronic: "1520-5029"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 5.9
+    society_affiliation: acs
+    submission_url: https://pubs.acs.org/journal/enfuem
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=enfuem"
+    scope_statement: >
+      Energy & Fuels covers the chemistry and chemical engineering of fossil
+      fuels, renewables, energy storage, and combustion.
+
+  - id: jpcb
+    name: Journal of Physical Chemistry B
+    publisher: American Chemical Society
+    publisher_family: acs
+    issn_print: "1520-6106"
+    issn_electronic: "1520-5207"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 3.1
+    society_affiliation: acs
+    submission_url: https://pubs.acs.org/journal/jpcbfk
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=jpcbfk"
+    scope_statement: >
+      JPCB covers soft condensed matter, biophysical chemistry, solution
+      chemistry, and molecular simulation at the molecular and mesoscale.
+
+  - id: nanoscale
+    name: Nanoscale
+    publisher: Royal Society of Chemistry
+    publisher_family: rsc
+    issn_print: "2040-3364"
+    issn_electronic: "2040-3372"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 4.8
+    society_affiliation: rsc
+    submission_url: https://www.rsc.org/journals-books-databases/find-an-article/nanoscale/
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://feeds.rsc.org/rss/nr"
+    scope_statement: >
+      Nanoscale covers all aspects of nanoscience and nanotechnology, including
+      synthesis, characterisation, theory, and applications.
+
+  - id: colsurfb
+    name: Colloids and Surfaces B
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0927-7765"
+    issn_electronic: "1873-4367"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 4.7
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/colsub/
+    abstract_format: flat
+    scope_statement: >
+      Colloids and Surfaces B covers biointerfaces: protein adsorption, cell
+      adhesion, biomaterial surfaces, and drug delivery systems.
+
+  - id: ijhmt
+    name: International Journal of Heat and Mass Transfer
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0017-9310"
+    issn_electronic: "1879-2189"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 5.9
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/heat/
+    abstract_format: flat
+    scope_statement: >
+      IJHMT covers heat transfer, mass transfer, thermodynamics, and fluid flow
+      with relevance to engineering systems.
+
+  - id: pccp
+    name: Physical Chemistry Chemical Physics
+    publisher: Royal Society of Chemistry
+    publisher_family: rsc
+    issn_print: "1463-9076"
+    issn_electronic: "1463-9084"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 3.2
+    society_affiliation: rsc
+    submission_url: https://www.rsc.org/journals-books-databases/find-an-article/physical-chemistry-chemical-physics/
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://feeds.rsc.org/rss/cp"
+    scope_statement: >
+      PCCP publishes fundamental physical chemistry and chemical physics
+      research spanning spectroscopy, dynamics, biophysics, and theoretical
+      methods.
+
+  - id: jmca
+    name: Journal of Materials Chemistry A
+    publisher: Royal Society of Chemistry
+    publisher_family: rsc
+    issn_print: "2050-7488"
+    issn_electronic: "2050-7496"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 7.4
+    society_affiliation: rsc
+    submission_url: https://www.rsc.org/journals-books-databases/find-an-article/journal-of-materials-chemistry-a/
+    abstract_format: flat
+    metadata:
+      rss_feed_url: "https://feeds.rsc.org/rss/ta"
+    scope_statement: >
+      JMCA covers materials for energy and sustainability, including batteries,
+      photovoltaics, hydrogen production, and environmental remediation.
+
+  - id: ces
+    name: Chemical Engineering Science
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0009-2509"
+    issn_electronic: "1873-4405"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 4.1
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/cesc/
+    abstract_format: flat
+    scope_statement: >
+      CES publishes research on the fundamentals of chemical engineering,
+      including transport phenomena, reaction engineering, thermodynamics,
+      and process design.
+
+  - id: jiec
+    name: Journal of Industrial and Engineering Chemistry
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "1226-086X"
+    issn_electronic: "1876-794X"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 6.9
+    society_affiliation: null
+    submission_url: https://www.editorialmanager.com/jiec/
+    abstract_format: flat
+    scope_statement: >
+      JIEC covers chemical engineering research, including process engineering,
+      environmental applications, polymer science, and nanomaterial synthesis
+      and application.
+
+  - id: spejournal
+    name: SPE Journal
+    publisher: Society of Petroleum Engineers
+    publisher_family: spe
+    issn_print: "1086-055X"
+    issn_electronic: "1086-055X"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 3.2
+    society_affiliation: spe
+    submission_url: https://onepetro.org/SJ/pages/about
+    abstract_format: flat
+    scope_statement: >
+      Covers fundamental research and practical aspects of subsurface energy resources for sustainable oil and gas exploration, including drilling, completion, production, reservoir engineering, petrophysics, geology, and geophysics.
+
+
+  - id: sree
+    name: SPE Reservoir Evaluation & Engineering
+    publisher: Society of Petroleum Engineers
+    publisher_family: spe
+    issn_print: "1094-6470"
+    issn_electronic: "1930-0212"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 2.7
+    society_affiliation: spe
+    submission_url: https://onepetro.org/SREE
+    abstract_format: flat
+    scope_statement: >
+      Publishes research on reservoir characterization, evaluation, simulation, management, and enhanced oil recovery techniques.
+
+
+  - id: sdec
+    name: SPE Drilling & Completion
+    publisher: Society of Petroleum Engineers
+    publisher_family: spe
+    issn_print: "1064-6671"
+    issn_electronic: "1930-0204"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 2.0
+    society_affiliation: spe
+    submission_url: https://onepetro.org/dc
+    abstract_format: flat
+    scope_statement: >
+      Features papers covering horizontal and directional drilling, drilling fluids, bit technology, sand control, perforating, cementing, well control, completions, and drilling operations.
+
+
+  - id: jpse
+    name: Journal of Petroleum Science and Engineering
+    publisher: Elsevier
+    publisher_family: elsevier
+    issn_print: "0920-4105"
+    issn_electronic: "1873-4715"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 6.0
+    society_affiliation: null
+    submission_url: https://www.sciencedirect.com/journal/journal-of-petroleum-science-and-engineering
+    abstract_format: flat
+    scope_statement: >
+      Publishes research on petroleum engineering, reservoir engineering, drilling technology, production engineering, and petroleum geology.
+
+
+  - id: natcom
+    name: Nature Communications
+    publisher: Nature Publishing Group
+    publisher_family: nature
+    issn_print: "2041-1723"
+    issn_electronic: "2041-1723"
+    is_fully_oa: true
+    is_hybrid_oa: false
+    impact_factor: 16.6
+    society_affiliation: null
+    submission_url: https://www.nature.com/ncomms/
+    abstract_format: structured_hmf
+    scope_statement: >
+      Publishes high-quality research across all areas of natural sciences, including physics, chemistry, biology, and earth sciences.
+
+
+  - id: sciadv
+    name: Science Advances
+    publisher: AAAS
+    publisher_family: aaas
+    issn_print: "2375-2548"
+    issn_electronic: "2375-2548"
+    is_fully_oa: true
+    is_hybrid_oa: false
+    impact_factor: 11.4
+    society_affiliation: null
+    submission_url: https://www.science.org/action/doSearch?AllField=science+advances
+    abstract_format: structured_hmf
+    scope_statement: >
+      Publishes innovative research across all sciences with emphasis on interdisciplinary work.
+
+
+  - id: npjcw
+    name: npj Clean Water
+    publisher: Nature Publishing Group
+    publisher_family: nature
+    issn_print: "2522-1493"
+    issn_electronic: "2522-1493"
+    is_fully_oa: true
+    is_hybrid_oa: false
+    impact_factor: 8.0
+    society_affiliation: null
+    submission_url: https://www.nature.com/npjcleanwater/
+    abstract_format: structured_hmf
+    scope_statement: >
+      Publishes research on water science, treatment, sustainability, and environmental engineering.
+
+
+  - id: advmat
+    name: Advanced Materials
+    publisher: Wiley
+    publisher_family: wiley
+    issn_print: "0935-9648"
+    issn_electronic: "1521-4095"
+    is_fully_oa: false
+    is_hybrid_oa: true
+    impact_factor: 27.4
+    society_affiliation: null
+    submission_url: https://onlinelibrary.wiley.com/journal/15214095
+    abstract_format: flat
+    scope_statement: >
+      Publishes cutting-edge research in materials science, nanotechnology, and advanced materials applications.

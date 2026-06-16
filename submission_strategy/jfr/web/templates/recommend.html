@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Recommend{% endblock %}
+{% block heading %}Journal Recommendations{% endblock %}
+
+{% block content %}
+<div class="flex gap-5">
+  <!-- Left panel: manuscript picker -->
+  <div class="w-72 flex-shrink-0 space-y-4">
+    <div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-4">
+      <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-2">Select Manuscript</label>
+      <select id="ms-select" onchange="selectMs(this.value)"
+              class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+        <option value="">— choose —</option>
+        {% for m in manuscripts %}
+        <option value="{{ m.id }}" {% if selected_ms and selected_ms.id == m.id %}selected{% endif %}>
+          {{ m.title[:40] }}
+        </option>
+        {% endfor %}
+      </select>
+
+      {% if selected_ms %}
+      <div class="mt-4 space-y-3 text-xs text-ink-600 dark:text-ink-300">
+        <p><span class="font-medium text-ink-700 dark:text-ink-200">ID:</span> <span class="font-mono">{{ selected_ms.id }}</span></p>
+        <div>
+          <p class="font-medium text-ink-700 dark:text-ink-200 mb-1">Principal Claim</p>
+          <p class="leading-relaxed">{{ selected_ms.principal_claim }}</p>
+        </div>
+        {% set techs = selected_ms.techniques_json | from_json %}
+        {% if techs %}
+        <div>
+          <p class="font-medium text-ink-700 dark:text-ink-200 mb-1">Techniques</p>
+          <div class="flex flex-wrap gap-1">
+            {% for t in techs %}
+            <span class="bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300 px-1.5 py-0.5 rounded">{{ t }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-xs font-medium text-ink-600 dark:text-ink-300 mb-1">Top N results</label>
+        <input type="number" id="top-n" value="10" min="1" max="15"
+               class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded px-2 py-1 text-sm">
+      </div>
+
+      <button onclick="runRecommend()"
+              class="mt-3 w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2 rounded-lg flex items-center justify-center gap-2">
+        <span id="btn-label">Run Recommendations</span>
+        <svg id="btn-spinner" class="hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+      </button>
+      {% endif %}
+    </div>
+
+    <!-- Policy summary -->
+    <div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-4 text-xs text-ink-600 dark:text-ink-300 space-y-1.5">
+      <p class="font-semibold text-ink-700 dark:text-ink-200 mb-2">Active Policy</p>
+      <p>IF floor: <span class="font-medium text-ink-700 dark:text-ink-200">{{ policy.quality.impact_factor_floor }}</span></p>
+      <p>Fully OA: <span class="font-medium text-ink-700 dark:text-ink-200">{{ 'allowed' if policy.open_access.fully_oa_allowed else 'blocked' }}</span></p>
+      <p>Prefer: <span class="font-medium text-ink-700 dark:text-ink-200">{{ policy.publishers.preferlist | join(', ') }}</span></p>
+      {% if policy.allow_journals %}
+      <p>Exceptions: <span class="font-medium text-ink-700 dark:text-ink-200">{{ policy.allow_journals | join(', ') }}</span></p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Right panel: results -->
+  <div class="flex-1">
+    <div id="results-area">
+      {% if results %}
+        {{ _render_results(results, selected_ms.id) }}
+      {% elif selected_ms %}
+      <div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-12 text-center text-ink-400">
+        Click <strong class="text-ink-600 dark:text-ink-200">Run Recommendations</strong> to score all journals.
+      </div>
+      {% else %}
+      <div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-12 text-center text-ink-400">
+        Select a manuscript to get started.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+function selectMs(id) {
+  if (id) window.location = '/recommend?ms=' + id;
+}
+
+function runRecommend() {
+  const ms = document.querySelector('#ms-select').value;
+  const top = document.querySelector('#top-n').value;
+  if (!ms) return;
+  document.getElementById('btn-label').textContent = 'Running…';
+  document.getElementById('btn-spinner').classList.remove('hidden');
+  document.getElementById('results-area').innerHTML =
+    '<div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark p-12 text-center text-ink-400">' +
+    '<svg class="animate-spin h-8 w-8 mx-auto mb-3 text-brand-500" fill="none" viewBox="0 0 24 24">' +
+    '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>' +
+    '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>' +
+    '<p>Scoring journals… this takes ~10s on first run (model load).</p></div>';
+
+  fetch('/htmx/recommend/' + ms + '?top=' + top)
+    .then(r => r.text())
+    .then(html => {
+      document.getElementById('results-area').innerHTML = html;
+      document.getElementById('btn-label').textContent = 'Run Recommendations';
+      document.getElementById('btn-spinner').classList.add('hidden');
+    })
+    .catch(err => {
+      document.getElementById('results-area').innerHTML =
+        '<div class="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 rounded-xl p-6">' + err + '</div>';
+      document.getElementById('btn-label').textContent = 'Run Recommendations';
+      document.getElementById('btn-spinner').classList.add('hidden');
+    });
+}
+
+{% if selected_ms and not results %}
+window.addEventListener('load', () => runRecommend());
+{% endif %}
+</script>
+{% endblock %}

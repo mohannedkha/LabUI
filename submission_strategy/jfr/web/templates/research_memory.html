@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Memory{% endblock %}
+{% block heading %}Research Lab — Memory{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+  <div class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl p-4 flex gap-2">
+    <input id="mem-q" type="text" placeholder="Search memories semantically…"
+           onkeydown="if(event.key==='Enter') searchMemories()"
+           class="flex-1 bg-ink-50 dark:bg-ink-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-400">
+    <button onclick="searchMemories()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 rounded-lg">Search</button>
+    <button onclick="loadAllMemories()" class="bg-ink-100 dark:bg-ink-800 text-ink-700 dark:text-ink-200 text-sm px-3 rounded-lg">All</button>
+  </div>
+  <div id="memory-list" class="space-y-2">
+    <div class="text-ink-400 text-center py-8 text-sm">Loading memories…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TYPE_STYLES = {
+  finding:    'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300',
+  hypothesis: 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300',
+  insight:    'bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300',
+  question:   'bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300',
+  default:    'bg-ink-100 dark:bg-ink-800 text-ink-600 dark:text-ink-300',
+};
+
+document.addEventListener('DOMContentLoaded', loadAllMemories);
+
+async function loadAllMemories() {
+  const list = document.getElementById('memory-list');
+  list.innerHTML = '<div class="text-ink-400 text-center py-8 text-sm">Loading…</div>';
+  try {
+    const r = await fetch('/api/rag/memory');
+    renderMemories(await r.json());
+  } catch (e) {
+    list.innerHTML = `<div class="text-rose-500 text-sm">Failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function searchMemories() {
+  const q = document.getElementById('mem-q').value.trim();
+  if (!q) { loadAllMemories(); return; }
+  const list = document.getElementById('memory-list');
+  list.innerHTML = '<div class="text-ink-400 text-center py-8 text-sm"><span class="spinner"></span> Searching…</div>';
+  try {
+    const r = await fetch('/api/rag/memory/search', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: q})
+    });
+    renderMemories(await r.json());
+  } catch (e) {
+    list.innerHTML = `<div class="text-rose-500 text-sm">Failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderMemories(items) {
+  const list = document.getElementById('memory-list');
+  if (!items || !items.length) {
+    list.innerHTML = '<div class="text-ink-400 text-center py-8 text-sm">No memories yet. Use the chat to generate findings.</div>'; return;
+  }
+  list.innerHTML = items.map(m => {
+    const style = TYPE_STYLES[m.memory_type] || TYPE_STYLES.default;
+    return `
+      <article class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl p-4 flex gap-3">
+        <span class="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-md self-start ${style}">${escapeHtml(m.memory_type || 'note')}</span>
+        <div class="flex-1 text-sm leading-relaxed text-ink-700 dark:text-ink-200">${escapeHtml(m.content)}</div>
+        <button onclick="deleteMemory('${escapeJs(m.id)}')" class="text-ink-300 hover:text-rose-500 text-xs" title="Delete">✕</button>
+      </article>`;
+  }).join('');
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Delete this memory?')) return;
+  await fetch('/api/rag/memory/' + encodeURIComponent(id), {method: 'DELETE'});
+  loadAllMemories();
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeJs(s)   { return String(s).replace(/'/g, "\\'"); }
+</script>
+{% endblock %}

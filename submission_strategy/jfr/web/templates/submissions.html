@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Submissions{% endblock %}
+{% block heading %}Submission Tracker{% endblock %}
+
+{% block content %}
+<!-- Active -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h2 class="font-semibold text-gray-700">Active Submissions</h2>
+  </div>
+  {% if active %}
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+      <tr>
+        <th class="px-6 py-3 text-left">Manuscript</th>
+        <th class="px-6 py-3 text-left">Journal</th>
+        <th class="px-6 py-3 text-left">State</th>
+        <th class="px-6 py-3 text-left">Submitted</th>
+        <th class="px-6 py-3 text-right">Days elapsed</th>
+        <th class="px-6 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in active %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-6 py-3 text-gray-800 font-medium">{{ s.manuscript_title[:45] }}</td>
+        <td class="px-6 py-3 text-gray-600">{{ s.journal_name }}</td>
+        <td class="px-6 py-3">
+          <span class="state-badge px-2 py-0.5 rounded-full font-semibold uppercase
+            {% if 'under_review' in s.current_state %}bg-blue-100 text-blue-700
+            {% elif 'revision' in s.current_state %}bg-amber-100 text-amber-700
+            {% elif 'drafting' in s.current_state or 'internal' in s.current_state %}bg-gray-100 text-gray-600
+            {% elif 'supervisor' in s.current_state %}bg-yellow-100 text-yellow-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ s.current_state.replace('_',' ') }}
+          </span>
+        </td>
+        <td class="px-6 py-3 text-gray-500">{{ s.submitted_at[:10] if s.submitted_at else '—' }}</td>
+        <td class="px-6 py-3 text-right {% if s.days_elapsed > 60 %}text-red-600 font-semibold{% elif s.days_elapsed > 30 %}text-amber-600{% else %}text-gray-500{% endif %}">
+          {{ s.days_elapsed }}d
+          {% if s.days_elapsed > 75 %}<span class="text-red-400 text-xs ml-1">⚠</span>{% endif %}
+        </td>
+        <td class="px-6 py-3 text-right">
+          <a href="/submissions/{{ s.id }}" class="text-indigo-600 hover:underline text-xs">Manage →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="px-6 py-10 text-center text-gray-400">No active submissions.</div>
+  {% endif %}
+</div>
+
+<!-- All submissions (recent) -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h2 class="font-semibold text-gray-700">All Submissions</h2>
+  </div>
+  {% if all_subs %}
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+      <tr>
+        <th class="px-6 py-3 text-left">ID</th>
+        <th class="px-6 py-3 text-left">Manuscript</th>
+        <th class="px-6 py-3 text-left">Journal</th>
+        <th class="px-6 py-3 text-left">Outcome</th>
+        <th class="px-6 py-3 text-right">Created</th>
+        <th class="px-6 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in all_subs %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-6 py-3 font-mono text-xs text-gray-400">{{ s.id }}</td>
+        <td class="px-6 py-3 text-gray-700">{{ s.manuscript_title[:40] if s.manuscript_title else s.manuscript_id }}</td>
+        <td class="px-6 py-3 text-gray-600">{{ s.journal_name if s.journal_name else s.journal_id }}</td>
+        <td class="px-6 py-3">
+          <span class="state-badge px-2 py-0.5 rounded-full font-semibold uppercase
+            {% if s.current_state == 'accepted' %}bg-green-100 text-green-700
+            {% elif 'rejected' in s.current_state %}bg-red-100 text-red-700
+            {% elif s.current_state == 'withdrawn' %}bg-gray-100 text-gray-500
+            {% elif 'review' in s.current_state %}bg-blue-100 text-blue-700
+            {% elif 'revision' in s.current_state %}bg-amber-100 text-amber-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ s.current_state.replace('_',' ') }}
+          </span>
+        </td>
+        <td class="px-6 py-3 text-right text-gray-400">{{ s.created_at[:10] }}</td>
+        <td class="px-6 py-3 text-right">
+          <a href="/submissions/{{ s.id }}" class="text-indigo-600 hover:underline text-xs">View →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="px-6 py-10 text-center text-gray-400">No submissions yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

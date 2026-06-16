@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Paper Search{% endblock %}
+{% block heading %}Research Lab — Paper Search{% endblock %}
+{% block header_actions %}
+  <a href="/research/upload" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+    Upload papers
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5">
+  <!-- Search bar -->
+  <div class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl shadow-soft dark:shadow-soft-dark p-4">
+    <div class="flex gap-2">
+      <div class="flex-1 flex items-center bg-ink-50 dark:bg-ink-800 rounded-lg px-3 focus-within:ring-2 focus-within:ring-brand-400">
+        <svg class="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input id="q" type="text" placeholder="Search papers by topic, method, or concept…"
+               onkeydown="if(event.key==='Enter') runSearch()"
+               class="flex-1 bg-transparent outline-none px-3 py-2.5 text-sm">
+      </div>
+      <select id="topk" class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
+        <option value="5">5 results</option>
+        <option value="10" selected>10 results</option>
+        <option value="15">15 results</option>
+        <option value="20">20 results</option>
+        <option value="30">30 results</option>
+      </select>
+      <button onclick="runSearch()" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 rounded-lg">Search</button>
+    </div>
+    <div class="flex items-center justify-between mt-2 gap-3 flex-wrap">
+      <div class="text-[11px] text-ink-400">Hybrid BM25 + SPECTER2 dense → RRF fusion → BGE reranker. Capped at 2 chunks per paper.</div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-ink-400">Linking to:</span>
+        <select id="ms-select"
+                class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-md px-2 py-1 text-[12px] max-w-[260px] truncate">
+          <option value="">— no manuscript —</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="bg-white dark:bg-ink-900 rounded-xl border border-dashed border-ink-200 dark:border-ink-800 p-10 text-center">
+      <svg class="w-10 h-10 mx-auto text-ink-300 dark:text-ink-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <div class="text-sm text-ink-500 dark:text-ink-400">Enter a query to search the indexed papers.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const LINK_TYPES = ['cites', 'supports', 'contrasts', 'background', 'extends', 'related'];
+
+async function loadPaperCount() {
+  try {
+    const r = await fetch('/api/rag/status');
+    const s = await r.json();
+    if (s.papers > 0) {
+      document.getElementById('q').placeholder =
+        `Search ${s.papers.toLocaleString()} papers by topic, method, or concept…`;
+    }
+  } catch (e) { /* keep generic placeholder */ }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadManuscripts();
+  loadPaperCount();
+  const seed = new URLSearchParams(location.search).get('q');
+  if (seed) {
+    document.getElementById('q').value = seed;
+    runSearch();
+  }
+});
+
+async function loadManuscripts() {
+  try {
+    const r = await fetch('/api/manuscripts');
+    const list = await r.json();
+    const sel = document.getElementById('ms-select');
+    list.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = (m.title || m.id).slice(0, 80);
+      sel.appendChild(o);
+    });
+  } catch (e) { /* ok */ }
+}
+
+async function runSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const topk = parseInt(document.getElementById('topk').value, 10);
+  const out = document.getElementById('results');
+  out.innerHTML = '<div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 p-6 flex items-center gap-3 text-sm text-ink-500"><span class="spinner"></span> Searching…</div>';
+
+  let data;
+  try {
+    const r = await fetch('/api/rag/search', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: q, top_k: topk})
+    });
+    if (!r.ok) throw new Error(r.statusText);
+    data = await r.json();
+  } catch (e) {
+    out.innerHTML = `<div class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-xl p-5 text-sm">Search failed: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+
+  if (!data.results?.length) {
+    out.innerHTML = '<div class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 p-6 text-center text-sm text-ink-500">No matches found.</div>';
+    return;
+  }
+
+  out.innerHTML = `
+    <div class="text-xs text-ink-500 dark:text-ink-400 mb-3">${data.total} ranked passages</div>
+    <div class="space-y-3">
+      ${data.results.map((r, i) => renderResult(r, i + 1)).join('')}
+    </div>`;
+}
+
+function renderResult(r, idx) {
+  const snippet = (r.text || '').slice(0, 360);
+  const safeId = String(r.paper_id).replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `
+    <article class="bg-white dark:bg-ink-900 border border-ink-200 dark:border-ink-800 rounded-xl shadow-soft dark:shadow-soft-dark p-4 hover:border-brand-300 dark:hover:border-brand-700 transition">
+      <div class="flex items-start gap-3">
+        <span class="text-[11px] font-mono bg-ink-100 dark:bg-ink-800 text-ink-500 dark:text-ink-300 px-2 py-1 rounded">${idx}</span>
+        <div class="flex-1 min-w-0">
+          <h3 class="font-semibold text-sm leading-snug text-ink-800 dark:text-ink-100">${escapeHtml(r.title || r.paper_id)}</h3>
+          <div class="text-[11px] text-ink-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span class="font-mono">${escapeHtml(r.paper_id)}</span>
+            <span>·</span>
+            <span>${escapeHtml(r.section_name || '')}</span>
+            <span>·</span>
+            <span>p. ${r.page_start || '?'}${r.page_end && r.page_end !== r.page_start ? '–' + r.page_end : ''}</span>
+            ${r.authors ? `<span>·</span><span class="truncate max-w-[40ch]">${escapeHtml(r.authors)}</span>` : ''}
+          </div>
+          <p class="text-xs text-ink-600 dark:text-ink-300 mt-2 leading-relaxed">${escapeHtml(snippet)}${(r.text || '').length > 360 ? '…' : ''}</p>
+          <div class="flex flex-wrap items-center gap-2 mt-2.5">
+            <button onclick="openPaper('${escapeJs(r.paper_id)}')"
+                    class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">View paper</button>
+            <a href="/api/rag/pdf?id=${encodeURIComponent(r.paper_id)}" target="_blank"
+               class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Open PDF ↗</a>
+            <div class="flex items-center gap-1 ml-auto">
+              <select id="lt-${safeId}" class="text-[11px] bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-1">
+                ${LINK_TYPES.map(t => `<option value="${t}"${t === 'related' ? ' selected' : ''}>${t}</option>`).join('')}
+              </select>
+              <button onclick="linkResult('${escapeJs(r.paper_id)}')"
+                      class="text-[11px] bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-1 rounded-md disabled:opacity-40">+ Link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>`;
+}
+
+async function linkResult(paperId) {
+  const msId = document.getElementById('ms-select').value;
+  if (!msId) { alert('Pick a manuscript in the "Linking to" dropdown first.'); return; }
+  const safeId = paperId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const linkType = document.getElementById('lt-' + safeId).value;
+  const fd = new FormData();
+  fd.set('ms_id', msId); fd.set('paper_id', paperId);
+  fd.set('link_type', linkType); fd.set('note', 'From search');
+  try {
+    const r = await fetch('/api/rag/links', {method: 'POST', body: fd});
+    const d = await r.json();
+    if (d.success) toast('Linked: ' + paperId.slice(0, 28));
+    else alert(d.error || 'Link failed');
+  } catch (e) { alert('Link failed: ' + e.message); }
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 right-4 bg-ink-800 dark:bg-ink-100 text-white dark:text-ink-900 px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+async function openPaper(paperId) {
+  try {
+    const r = await fetch('/api/rag/paper?id=' + encodeURIComponent(paperId));
+    const d = await r.json();
+    const w = window.open('', '_blank');
+    w.document.write(`<html><head><title>${escapeHtml(d.title || paperId)}</title>
+      <style>body{font-family:Inter,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;color:#1c2230;line-height:1.6}h1{font-size:20px}.meta{color:#8b94a6;font-size:13px}.toc{margin:14px 0;padding:14px;background:#f7f8fa;border-radius:8px;font-size:13px}a{color:#5e6bf0}</style></head><body>
+      <h1>${escapeHtml(d.title || paperId)}</h1>
+      <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
+      ${d.pdf_available ? `<p><a href="/api/rag/pdf?id=${encodeURIComponent(paperId)}" target="_blank">Open PDF ↗</a></p>` : ''}
+      <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
+      ${d.summary ? `<h2>Summary</h2><pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(d.summary)}</pre>` : ''}
+      </body></html>`);
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeJs(s)   { return String(s).replace(/'/g, "\\'"); }
+</script>
+{% endblock %}
