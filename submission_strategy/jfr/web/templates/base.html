@@ -500,6 +500,16 @@
      Pages that render markdown register it via marked.use(markedKatex(...)). -->
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.4/lib/index.umd.js"></script>
+<script>
+  // LLMs often emit math as \( … \) / \[ … \]; the KaTeX marked extension only
+  // reads $ … $ / $$ … $$. Normalize complete pairs to $-delimiters before
+  // markdown parsing (partial math during streaming stays literal until closed).
+  window.normalizeMath = function (md) {
+    return String(md == null ? '' : md)
+      .replace(/\\\[([\s\S]+?)\\\]/g, function (_, x) { return '$$' + x + '$$'; })
+      .replace(/\\\(([\s\S]+?)\\\)/g, function (_, x) { return '$' + x + '$'; });
+  };
+</script>
 
 {% block scripts %}{% endblock %}
 </body>

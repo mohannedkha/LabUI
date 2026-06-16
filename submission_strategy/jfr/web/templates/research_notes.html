@@ -150,7 +150,7 @@ function showReader(title, content) {
   const {meta} = parseFrontmatter(currentRawContent);
   document.getElementById('reader-meta').textContent = meta;
   document.getElementById('reader-edit').textContent = 'Edit';
-  const html = mdReady ? marked.parse(content) : `<pre>${escapeHtml(content)}</pre>`;
+  const html = mdReady ? marked.parse(window.normalizeMath ? window.normalizeMath(content) : content) : `<pre>${escapeHtml(content)}</pre>`;
   document.getElementById('reader-content').innerHTML = html;
 }
 

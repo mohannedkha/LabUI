@@ -142,10 +142,11 @@ let mdReady = false;
 try { marked.use({ gfm: true, breaks: true }); if (window.markedKatex) marked.use(markedKatex({ throwOnError: false })); mdReady = true; } catch (e) {}
 
 document.addEventListener('DOMContentLoaded', () => {
+  const nmz = window.normalizeMath || (x => x);
   const rm = document.getElementById('results-md');
-  if (rm) rm.innerHTML = mdReady ? marked.parse(RESULTS_MD) : `<pre>${escapeHtml(RESULTS_MD)}</pre>`;
+  if (rm) rm.innerHTML = mdReady ? marked.parse(nmz(RESULTS_MD)) : `<pre>${escapeHtml(RESULTS_MD)}</pre>`;
   const nm = document.getElementById('notes-md');
-  if (nm) nm.innerHTML = mdReady ? marked.parse(NOTES_MD) : `<pre>${escapeHtml(NOTES_MD)}</pre>`;
+  if (nm) nm.innerHTML = mdReady ? marked.parse(nmz(NOTES_MD)) : `<pre>${escapeHtml(NOTES_MD)}</pre>`;
   loadLinkedPapers();
 });
 

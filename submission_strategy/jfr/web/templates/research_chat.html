@@ -615,7 +615,8 @@ try {
 
 function renderMd(md) {
   let html = md;
-  try { if (mdReady) html = marked.parse(md); } catch (e) {}
+  const src = window.normalizeMath ? window.normalizeMath(md) : md;
+  try { if (mdReady) html = marked.parse(src); } catch (e) {}
   // Citation chips [paper_id]
   html = html.replace(/\[([a-zA-Z][\w\-]+)\]/g, (m, id) => {
     const paper = lastChunks.find(p => p.paper_id === id);
