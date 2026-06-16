@@ -33,6 +33,11 @@
       <span class="mx-1 text-ink-300">|</span>
       <button id="modeText" onclick="setMode('text')" class="px-3 py-1 rounded text-xs font-medium bg-brand-600 text-white">Select text</button>
       <button id="modeClip" onclick="setMode('clip')" class="px-3 py-1 rounded text-xs font-medium bg-ink-100 dark:bg-ink-800">Clip figure</button>
+      <span class="mx-1 text-ink-300">|</span>
+      <span class="text-[11px] text-ink-400">Manuscript:</span>
+      <select id="msSelect" class="bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-1 text-[12px] max-w-[180px] truncate">
+        <option value="">— none —</option>
+      </select>
       <a id="rawPdf" href="#" target="_blank" class="ml-auto text-xs text-brand-600 hover:underline">Raw PDF ↗</a>
     </div>
     <!-- pages -->
@@ -197,8 +202,26 @@ function cropRegion(rect) {
   return out.toDataURL('image/png');
 }
 
+// ── Manuscripts (attach clips to a manuscript) ────────────────
+let MS_BY_ID = {};
+(async function loadManuscripts() {
+  try {
+    const list = await fetch('/api/manuscripts').then(r => r.json());
+    const sel = document.getElementById('msSelect');
+    list.forEach(m => {
+      MS_BY_ID[m.id] = m.title || m.id;
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = (m.title || m.id).slice(0, 60);
+      sel.appendChild(o);
+    });
+  } catch (e) { /* ok */ }
+})();
+function selectedMs() { const s = document.getElementById('msSelect'); return s ? s.value : ''; }
+
 // ── Clips API + saved-items panel ─────────────────────────────
 async function postClip(body) {
+  const ms = selectedMs();
+  if (ms) body.manuscript_id = ms;
   try {
     const r = await fetch('/api/rag/clips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || ('HTTP ' + r.status)); }
@@ -226,12 +249,29 @@ async function loadClips() {
           ? `<img src="/api/rag/clips/${c.clip_id}/image" class="mt-2 rounded border border-ink-100 dark:border-ink-800 max-h-40 w-auto" loading="lazy">`
           : `<div class="mt-1.5 text-xs text-ink-600 dark:text-ink-300 leading-snug">${escapeHtml(c.text || '')}</div>`}
         ${c.note ? `<div class="mt-1 text-[11px] text-ink-400 italic">${escapeHtml(c.note)}</div>` : ''}
-        <div class="mt-2 flex">
+        ${c.manuscript_id && MS_BY_ID[c.manuscript_id] ? `<div class="mt-1 text-[10px] text-brand-600 dark:text-brand-300">📎 ${escapeHtml(MS_BY_ID[c.manuscript_id])}</div>` : ''}
+        <div class="mt-2 flex gap-1.5 flex-wrap">
           <button onclick="clipToNote('${c.clip_id}')"
                   class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2 py-0.5 rounded">🗒 To note</button>
+          <button onclick="attachClip('${c.clip_id}')"
+                  class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2 py-0.5 rounded">📎 ${c.manuscript_id ? 'Reattach' : 'Attach'}</button>
         </div>
       </div>`).join('');
   } catch (e) { /* ignore */ }
+}
+
+async function attachClip(clipId) {
+  const ms = selectedMs();
+  if (!ms) { alert('Pick a manuscript in the toolbar dropdown first.'); return; }
+  try {
+    const r = await fetch('/api/rag/clips/' + encodeURIComponent(clipId), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manuscript_id: ms })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    toast('Attached to ' + (MS_BY_ID[ms] || ms).slice(0, 24));
+    loadClips();
+  } catch (e) { alert('Attach failed: ' + e.message); }
 }
 
 async function clipToNote(clipId) {

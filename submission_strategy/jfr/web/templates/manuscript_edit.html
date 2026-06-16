@@ -74,6 +74,17 @@
       </div>
     </section>
 
+    <!-- Saved clips (figures/highlights attached to this manuscript) -->
+    <section class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark">
+      <header class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between">
+        <h3 class="font-semibold text-sm">Saved clips</h3>
+        <span class="text-[11px] text-ink-400 font-mono" id="clips-count">—</span>
+      </header>
+      <div id="ms-clips" class="p-3 grid grid-cols-2 gap-2 max-h-96 overflow-y-auto scroll-thin">
+        <div class="col-span-2 text-ink-400 text-center py-6 text-xs">Loading…</div>
+      </div>
+    </section>
+
     <!-- Find supporting papers -->
     <section class="bg-white dark:bg-ink-900 rounded-xl border border-ink-200 dark:border-ink-800 shadow-soft dark:shadow-soft-dark">
       <header class="px-5 py-3 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between">
@@ -111,7 +122,27 @@ const LINK_STYLES = {
   related:    'bg-ink-100 dark:bg-ink-800 text-ink-600 dark:text-ink-300',
 };
 
-document.addEventListener('DOMContentLoaded', () => { loadLinked(); });
+document.addEventListener('DOMContentLoaded', () => { loadLinked(); loadMsClips(); });
+
+async function loadMsClips() {
+  const box = document.getElementById('ms-clips');
+  try {
+    const clips = await fetch('/api/rag/clips?manuscript_id=' + encodeURIComponent(MS_ID)).then(r => r.json());
+    document.getElementById('clips-count').textContent = clips.length;
+    if (!clips.length) { box.innerHTML = '<div class="col-span-2 text-ink-400 text-center py-6 text-xs">No clips attached yet. Save figures/highlights from a paper\'s reader and attach them to this manuscript.</div>'; return; }
+    box.innerHTML = clips.map(c => `
+      <div class="border border-ink-200 dark:border-ink-800 rounded-lg p-1.5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[9px] font-mono text-ink-400">${escapeHtml(c.paper_id).slice(0,16)} · p${c.page}</span>
+          <a href="/research/paper/${encodeURIComponent(c.paper_id)}/view" target="_blank" class="text-[10px] text-brand-600 hover:underline">open ↗</a>
+        </div>
+        ${c.type === 'figure'
+          ? `<img src="/api/rag/clips/${c.clip_id}/image" class="rounded w-full max-h-32 object-contain border border-ink-100 dark:border-ink-800" loading="lazy">`
+          : `<div class="text-[11px] text-ink-600 dark:text-ink-300 leading-snug line-clamp-4">${escapeHtml(c.text || '')}</div>`}
+        ${c.note ? `<div class="text-[10px] text-ink-400 italic mt-0.5">${escapeHtml(c.note)}</div>` : ''}
+      </div>`).join('');
+  } catch (e) { box.innerHTML = '<div class="col-span-2 text-rose-500 text-xs">Failed to load clips.</div>'; }
+}
 
 // ── Linked papers ────────────────────────────────────────────
 async function loadLinked() {

@@ -1109,6 +1109,7 @@ class ClipCreate(BaseModel):
     note: str = ""
     rect: Optional[list] = None
     image_b64: Optional[str] = None  # PNG data-URL or raw base64 (figure clips)
+    manuscript_id: str = ""          # optional: attach to a manuscript
 
 
 @router.post("/clips")
@@ -1138,7 +1139,8 @@ def api_clip_create(body: ClipCreate):
         "INSERT INTO clips (clip_id, paper_id, page, type, text, note, image_path,"
         " rect, manuscript_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (clip_id, pid, int(body.page or 1), ctype, (body.text or "").strip(),
-         (body.note or "").strip(), image_path, json.dumps(body.rect or []), "", time.time()),
+         (body.note or "").strip(), image_path, json.dumps(body.rect or []),
+         (body.manuscript_id or "").strip(), time.time()),
     )
     conn.commit()
     conn.close()
@@ -1153,17 +1155,41 @@ def api_clip_create(body: ClipCreate):
 
 
 @router.get("/clips")
-def api_clips_list(paper_id: str = Query("")):
+def api_clips_list(paper_id: str = Query(""), manuscript_id: str = Query("")):
     conn = _open_clips_db()
     if paper_id.strip():
         rows = conn.execute(
             "SELECT * FROM clips WHERE paper_id=? ORDER BY created_at DESC",
             (paper_id.strip(),),
         ).fetchall()
+    elif manuscript_id.strip():
+        rows = conn.execute(
+            "SELECT * FROM clips WHERE manuscript_id=? ORDER BY created_at DESC",
+            (manuscript_id.strip(),),
+        ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM clips ORDER BY created_at DESC LIMIT 500").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+class ClipPatch(BaseModel):
+    manuscript_id: str = ""
+
+
+@router.patch("/clips/{clip_id}")
+def api_clip_patch(clip_id: str, body: ClipPatch):
+    if not re.match(r"^[\w\-]+$", clip_id):
+        raise HTTPException(400, "invalid id")
+    conn = _open_clips_db()
+    if not conn.execute("SELECT 1 FROM clips WHERE clip_id=?", (clip_id,)).fetchone():
+        conn.close()
+        raise HTTPException(404, "not found")
+    conn.execute("UPDATE clips SET manuscript_id=? WHERE clip_id=?",
+                 ((body.manuscript_id or "").strip(), clip_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "manuscript_id": (body.manuscript_id or "").strip()}
 
 
 @router.get("/clips/{clip_id}/image")
