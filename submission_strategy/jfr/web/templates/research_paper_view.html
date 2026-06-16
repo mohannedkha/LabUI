@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Read paper{% endblock %}
+{% block heading %}Paper reader{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/pdf_viewer.css">
+<style>
+  #pageWrap { position: relative; line-height: 0; margin: 0 auto; box-shadow: 0 4px 24px -6px rgba(0,0,0,.3); }
+  #pageWrap canvas { display: block; }
+  .textLayer { position: absolute; inset: 0; overflow: hidden; opacity: 1; line-height: 1; }
+  .textLayer ::selection { background: rgba(94,107,240,.35); }
+  /* figure-clip selection overlay */
+  #clipOverlay { position: absolute; inset: 0; cursor: crosshair; display: none; z-index: 5; }
+  #clipOverlay.active { display: block; }
+  #selRect { position: absolute; border: 2px dashed #5e6bf0; background: rgba(94,107,240,.15); display: none; }
+  #hlBtn { position: absolute; z-index: 20; display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-12 gap-4 h-[calc(100vh-11rem)]">
+  <!-- Reader -->
+  <div class="col-span-8 flex flex-col tile tile-flush overflow-hidden">
+    <!-- toolbar -->
+    <div class="flex items-center gap-2 px-3 py-2 border-b border-ink-200 dark:border-ink-800 text-sm flex-wrap">
+      <button onclick="prevPage()" class="px-2 py-1 rounded bg-ink-100 dark:bg-ink-800 hover:bg-ink-200">‹</button>
+      <span class="font-mono text-xs">Page <span id="pageNum">–</span> / <span id="pageCount">–</span></span>
+      <button onclick="nextPage()" class="px-2 py-1 rounded bg-ink-100 dark:bg-ink-800 hover:bg-ink-200">›</button>
+      <span class="mx-1 text-ink-300">|</span>
+      <button onclick="zoom(-1)" class="px-2 py-1 rounded bg-ink-100 dark:bg-ink-800 hover:bg-ink-200">−</button>
+      <span class="font-mono text-xs" id="zoomLabel">100%</span>
+      <button onclick="zoom(1)" class="px-2 py-1 rounded bg-ink-100 dark:bg-ink-800 hover:bg-ink-200">+</button>
+      <span class="mx-1 text-ink-300">|</span>
+      <button id="modeText" onclick="setMode('text')" class="px-3 py-1 rounded text-xs font-medium bg-brand-600 text-white">Select text</button>
+      <button id="modeClip" onclick="setMode('clip')" class="px-3 py-1 rounded text-xs font-medium bg-ink-100 dark:bg-ink-800">Clip figure</button>
+      <a id="rawPdf" href="#" target="_blank" class="ml-auto text-xs text-brand-600 hover:underline">Raw PDF ↗</a>
+    </div>
+    <!-- pages -->
+    <div id="viewer" class="flex-1 overflow-auto scroll-thin bg-ink-100 dark:bg-ink-950 p-4">
+      <div id="pageWrap">
+        <canvas id="pdfCanvas"></canvas>
+        <div id="textLayer" class="textLayer"></div>
+        <div id="clipOverlay"><div id="selRect"></div></div>
+      </div>
+      <div id="loadMsg" class="text-center text-ink-400 text-sm py-10">Loading PDF…</div>
+    </div>
+  </div>
+
+  <!-- Saved items -->
+  <aside class="col-span-4 tile tile-flush flex flex-col overflow-hidden">
+    <div class="px-4 py-3 border-b border-ink-100 dark:border-ink-800 flex items-center justify-between">
+      <h3 class="font-semibold text-sm">Saved items</h3>
+      <span id="clipCount" class="text-[11px] text-ink-400 font-mono">0</span>
+    </div>
+    <div class="px-4 py-2 text-[11px] text-ink-400 border-b border-ink-100 dark:border-ink-800">
+      <b>Select text</b> → highlight a passage. <b>Clip figure</b> → drag a box over a figure. Saved items stick to this paper.
+    </div>
+    <div id="clipList" class="flex-1 overflow-y-auto scroll-thin p-3 space-y-2"></div>
+  </aside>
+</div>
+
+<button id="hlBtn" onclick="saveHighlight()"
+        class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg">🖍 Save highlight</button>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>
+const PAPER_ID = {{ paper_id | tojson }};
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+document.getElementById('rawPdf').href = '/api/rag/pdf?id=' + encodeURIComponent(PAPER_ID);
+
+let pdfDoc = null, pageNum = 1, scale = 1.3, mode = 'text', rendering = false;
+const outputScale = window.devicePixelRatio || 1;
+const canvas = document.getElementById('pdfCanvas');
+const ctx = canvas.getContext('2d');
+const textLayer = document.getElementById('textLayer');
+const clipOverlay = document.getElementById('clipOverlay');
+const selRect = document.getElementById('selRect');
+const hlBtn = document.getElementById('hlBtn');
+let pendingText = '';
+
+(async function init() {
+  try {
+    pdfDoc = await pdfjsLib.getDocument('/api/rag/pdf?id=' + encodeURIComponent(PAPER_ID)).promise;
+    document.getElementById('pageCount').textContent = pdfDoc.numPages;
+    document.getElementById('loadMsg').style.display = 'none';
+    await renderPage(1);
+    loadClips();
+  } catch (e) {
+    document.getElementById('loadMsg').textContent = 'Failed to load PDF: ' + e.message;
+  }
+})();
+
+async function renderPage(n) {
+  if (!pdfDoc || rendering) return;
+  rendering = true;
+  pageNum = Math.min(Math.max(1, n), pdfDoc.numPages);
+  document.getElementById('pageNum').textContent = pageNum;
+  const page = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale });
+  canvas.width = Math.floor(viewport.width * outputScale);
+  canvas.height = Math.floor(viewport.height * outputScale);
+  canvas.style.width = viewport.width + 'px';
+  canvas.style.height = viewport.height + 'px';
+  document.getElementById('pageWrap').style.width = viewport.width + 'px';
+  const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+  await page.render({ canvasContext: ctx, viewport, transform }).promise;
+  // text layer
+  textLayer.innerHTML = '';
+  textLayer.style.width = viewport.width + 'px';
+  textLayer.style.height = viewport.height + 'px';
+  textLayer.style.setProperty('--scale-factor', scale);   // PDF.js text alignment
+  try {
+    const tc = await page.getTextContent();
+    await pdfjsLib.renderTextLayer({ textContentSource: tc, container: textLayer, viewport, textDivs: [] }).promise;
+  } catch (e) { /* text layer optional */ }
+  rendering = false;
+}
+
+function prevPage() { if (pageNum > 1) renderPage(pageNum - 1); hideHl(); }
+function nextPage() { if (pdfDoc && pageNum < pdfDoc.numPages) renderPage(pageNum + 1); hideHl(); }
+function zoom(d) { scale = Math.min(3, Math.max(0.6, scale + d * 0.15)); document.getElementById('zoomLabel').textContent = Math.round(scale / 1.3 * 100) + '%'; renderPage(pageNum); }
+
+function setMode(m) {
+  mode = m;
+  clipOverlay.classList.toggle('active', m === 'clip');
+  textLayer.style.pointerEvents = m === 'text' ? 'auto' : 'none';
+  document.getElementById('modeText').className = 'px-3 py-1 rounded text-xs font-medium ' + (m === 'text' ? 'bg-brand-600 text-white' : 'bg-ink-100 dark:bg-ink-800');
+  document.getElementById('modeClip').className = 'px-3 py-1 rounded text-xs font-medium ' + (m === 'clip' ? 'bg-brand-600 text-white' : 'bg-ink-100 dark:bg-ink-800');
+  hideHl();
+}
+setMode('text');
+
+// ── Text highlight ────────────────────────────────────────────
+document.addEventListener('selectionchange', () => {
+  if (mode !== 'text') return;
+  const sel = window.getSelection();
+  const t = sel ? sel.toString().trim() : '';
+  if (t && textLayer.contains(sel.anchorNode)) {
+    pendingText = t;
+    const rng = sel.getRangeAt(0).getBoundingClientRect();
+    hlBtn.style.display = 'block';
+    hlBtn.style.left = (window.scrollX + rng.left) + 'px';
+    hlBtn.style.top = (window.scrollY + rng.bottom + 6) + 'px';
+  } else { hideHl(); }
+});
+function hideHl() { hlBtn.style.display = 'none'; pendingText = ''; }
+
+async function saveHighlight() {
+  if (!pendingText) return;
+  const note = prompt('Optional note for this highlight:', '') || '';
+  await postClip({ paper_id: PAPER_ID, page: pageNum, type: 'highlight', text: pendingText, note });
+  window.getSelection().removeAllRanges();
+  hideHl();
+}
+
+// ── Figure clip (rubber-band over the canvas) ─────────────────
+let dragging = false, sx = 0, sy = 0;
+clipOverlay.addEventListener('mousedown', (e) => {
+  if (mode !== 'clip') return;
+  const r = clipOverlay.getBoundingClientRect();
+  sx = e.clientX - r.left; sy = e.clientY - r.top;
+  dragging = true;
+  selRect.style.display = 'block';
+  selRect.style.left = sx + 'px'; selRect.style.top = sy + 'px';
+  selRect.style.width = '0px'; selRect.style.height = '0px';
+});
+clipOverlay.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const r = clipOverlay.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  selRect.style.left = Math.min(sx, x) + 'px';
+  selRect.style.top = Math.min(sy, y) + 'px';
+  selRect.style.width = Math.abs(x - sx) + 'px';
+  selRect.style.height = Math.abs(y - sy) + 'px';
+});
+clipOverlay.addEventListener('mouseup', async (e) => {
+  if (!dragging) return;
+  dragging = false;
+  const r = clipOverlay.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const rect = { x: Math.min(sx, x), y: Math.min(sy, y), w: Math.abs(x - sx), h: Math.abs(y - sy) };
+  selRect.style.display = 'none';
+  if (rect.w < 8 || rect.h < 8) return;   // ignore tiny drags
+  const dataUrl = cropRegion(rect);
+  const note = prompt('Optional caption for this figure:', '') || '';
+  await postClip({ paper_id: PAPER_ID, page: pageNum, type: 'figure', rect: [rect.x, rect.y, rect.w, rect.h], note, image_b64: dataUrl });
+});
+
+function cropRegion(rect) {
+  const s = outputScale;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(rect.w * s));
+  out.height = Math.max(1, Math.round(rect.h * s));
+  out.getContext('2d').drawImage(canvas, rect.x * s, rect.y * s, rect.w * s, rect.h * s, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
+}
+
+// ── Clips API + saved-items panel ─────────────────────────────
+async function postClip(body) {
+  try {
+    const r = await fetch('/api/rag/clips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || ('HTTP ' + r.status)); }
+    toast(body.type === 'figure' ? 'Figure saved' : 'Highlight saved');
+    loadClips();
+  } catch (e) { alert('Save failed: ' + e.message); }
+}
+
+async function loadClips() {
+  try {
+    const r = await fetch('/api/rag/clips?paper_id=' + encodeURIComponent(PAPER_ID));
+    const clips = await r.json();
+    document.getElementById('clipCount').textContent = clips.length;
+    const list = document.getElementById('clipList');
+    if (!clips.length) { list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No saved items yet.</div>'; return; }
+    list.innerHTML = clips.map(c => `
+      <div class="border border-ink-200 dark:border-ink-800 rounded-lg p-2">
+        <div class="flex items-start justify-between gap-2">
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${c.type === 'figure' ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300'}">${c.type} · p${c.page}</span>
+          <button onclick="deleteClip('${c.clip_id}')" class="text-ink-300 hover:text-rose-500 text-xs">✕</button>
+        </div>
+        ${c.type === 'figure'
+          ? `<img src="/api/rag/clips/${c.clip_id}/image" class="mt-2 rounded border border-ink-100 dark:border-ink-800 max-h-40 w-auto" loading="lazy">`
+          : `<div class="mt-1.5 text-xs text-ink-600 dark:text-ink-300 leading-snug">${escapeHtml(c.text || '')}</div>`}
+        ${c.note ? `<div class="mt-1 text-[11px] text-ink-400 italic">${escapeHtml(c.note)}</div>` : ''}
+      </div>`).join('');
+  } catch (e) { /* ignore */ }
+}
+
+async function deleteClip(id) {
+  if (!confirm('Delete this saved item?')) return;
+  await fetch('/api/rag/clips/' + encodeURIComponent(id), { method: 'DELETE' });
+  loadClips();
+}
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 right-4 bg-ink-800 dark:bg-ink-100 text-white dark:text-ink-900 px-4 py-2 rounded-lg text-sm shadow-lg z-50';
+  t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+</script>
+{% endblock %}
+</content>

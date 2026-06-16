@@ -598,7 +598,7 @@ async function openPaper(paperId) {
       a{color:#5e6bf0}</style></head><body>
       <h1>${escapeHtml(d.title || paperId)}</h1>
       <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
-      ${d.pdf_available ? `<p><a href="/api/rag/pdf?id=${encodeURIComponent(paperId)}" target="_blank">Open PDF ↗</a></p>` : ''}
+      ${d.pdf_available ? `<p><a href="/research/paper/${encodeURIComponent(paperId)}/view" target="_blank">Read & clip ↗</a></p>` : ''}
       <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
       ${d.summary ? `<h2>Summary</h2><pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(d.summary)}</pre>` : ''}
       </body></html>`);

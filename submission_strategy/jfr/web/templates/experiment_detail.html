@@ -157,7 +157,7 @@ async function loadLinkedPapers() {
     return;
   }
   list.innerHTML = LINKED.map(pid => `
-    <a href="/api/rag/pdf?id=${encodeURIComponent(pid)}" target="_blank"
+    <a href="/research/paper/${encodeURIComponent(pid)}/view" target="_blank"
        class="block border border-ink-200 dark:border-ink-800 rounded-md p-2 hover:border-brand-400 transition" id="lp-${cssId(pid)}">
       <div class="text-xs font-medium truncate" id="lt-${cssId(pid)}">Loading…</div>
       <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(pid)}</div>

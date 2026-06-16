@@ -141,8 +141,8 @@ function renderResult(r, idx) {
           <div class="flex flex-wrap items-center gap-2 mt-2.5">
             <button onclick="openPaper('${escapeJs(r.paper_id)}')"
                     class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">View paper</button>
-            <a href="/api/rag/pdf?id=${encodeURIComponent(r.paper_id)}" target="_blank"
-               class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Open PDF ↗</a>
+            <a href="/research/paper/${encodeURIComponent(r.paper_id)}/view" target="_blank"
+               class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Read & clip ↗</a>
             <button onclick="deletePaper('${escapeJs(r.paper_id)}')"
                     class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-rose-100 dark:hover:bg-rose-950 hover:text-rose-700 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Delete</button>
             <div class="flex items-center gap-1 ml-auto">
@@ -205,7 +205,7 @@ async function openPaper(paperId) {
       <style>body{font-family:Inter,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;color:#1c2230;line-height:1.6}h1{font-size:20px}.meta{color:#8b94a6;font-size:13px}.toc{margin:14px 0;padding:14px;background:#f7f8fa;border-radius:8px;font-size:13px}a{color:#5e6bf0}</style></head><body>
       <h1>${escapeHtml(d.title || paperId)}</h1>
       <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
-      ${d.pdf_available ? `<p><a href="/api/rag/pdf?id=${encodeURIComponent(paperId)}" target="_blank">Open PDF ↗</a></p>` : ''}
+      ${d.pdf_available ? `<p><a href="/research/paper/${encodeURIComponent(paperId)}/view" target="_blank">Read & clip ↗</a></p>` : ''}
       <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
       ${d.summary ? `<h2>Summary</h2><pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(d.summary)}</pre>` : ''}
       </body></html>`);

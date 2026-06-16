@@ -549,8 +549,8 @@ async function openInspector(entityId, hint) {
         <div class="text-[10px] text-ink-400 font-mono truncate">${escapeHtml(c.paper_id)} · ${escapeHtml(c.section_name || '')} · p.${c.page_start || '?'}</div>
         <p class="text-[11px] text-ink-600 dark:text-ink-300 mt-1 leading-relaxed">${escapeHtml((c.snippet || '').slice(0, 240))}${(c.snippet || '').length > 240 ? '…' : ''}</p>
         <div class="flex gap-1 mt-1.5">
-          <a href="/api/rag/pdf?id=${encodeURIComponent(c.paper_id)}" target="_blank"
-             class="text-[10px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-1.5 py-0.5 rounded">PDF ↗</a>
+          <a href="/research/paper/${encodeURIComponent(c.paper_id)}/view" target="_blank"
+             class="text-[10px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-1.5 py-0.5 rounded">Read ↗</a>
         </div>
       </article>`).join('');
   } catch (err) {
