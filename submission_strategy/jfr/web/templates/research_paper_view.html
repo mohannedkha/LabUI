@@ -207,10 +207,12 @@ async function postClip(body) {
   } catch (e) { alert('Save failed: ' + e.message); }
 }
 
+let currentClips = [];
 async function loadClips() {
   try {
     const r = await fetch('/api/rag/clips?paper_id=' + encodeURIComponent(PAPER_ID));
     const clips = await r.json();
+    currentClips = clips;
     document.getElementById('clipCount').textContent = clips.length;
     const list = document.getElementById('clipList');
     if (!clips.length) { list.innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No saved items yet.</div>'; return; }
@@ -224,8 +226,31 @@ async function loadClips() {
           ? `<img src="/api/rag/clips/${c.clip_id}/image" class="mt-2 rounded border border-ink-100 dark:border-ink-800 max-h-40 w-auto" loading="lazy">`
           : `<div class="mt-1.5 text-xs text-ink-600 dark:text-ink-300 leading-snug">${escapeHtml(c.text || '')}</div>`}
         ${c.note ? `<div class="mt-1 text-[11px] text-ink-400 italic">${escapeHtml(c.note)}</div>` : ''}
+        <div class="mt-2 flex">
+          <button onclick="clipToNote('${c.clip_id}')"
+                  class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2 py-0.5 rounded">🗒 To note</button>
+        </div>
       </div>`).join('');
   } catch (e) { /* ignore */ }
+}
+
+async function clipToNote(clipId) {
+  const c = currentClips.find(x => x.clip_id === clipId);
+  if (!c) return;
+  const title = (c.type === 'figure' ? 'Figure from ' : 'Highlight from ') + PAPER_ID + ' (p' + c.page + ')';
+  const body = c.type === 'figure'
+    ? `![${(c.note || 'figure').replace(/[\[\]]/g, '')}](/api/rag/clips/${c.clip_id}/image)\n\n${c.note || ''}`
+    : `> ${(c.text || '').replace(/\n/g, '\n> ')}\n\n${c.note || ''}`;
+  const content = `_From paper \`${PAPER_ID}\`, page ${c.page}._\n\n${body}`;
+  try {
+    const r = await fetch('/api/rag/notes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, agent: 'clip' })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    toast('Saved to notes: ' + d.id);
+  } catch (e) { alert('Save to note failed: ' + e.message); }
 }
 
 async function deleteClip(id) {
