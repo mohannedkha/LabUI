@@ -577,6 +577,7 @@ async function openPaper(paperId) {
 let mdReady = false;
 try {
   marked.use({ gfm: true, breaks: true });
+  if (window.markedKatex) marked.use(markedKatex({ throwOnError: false }));
   mdReady = true;
 } catch (e) {}
 

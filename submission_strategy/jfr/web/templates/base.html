@@ -21,6 +21,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
+  <!-- KaTeX math rendering (styles; JS loaded near </body>) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -492,6 +495,11 @@
   // Initial load — get models so label is populated even before dropdown opens
   refreshModelDropdown();
 </script>
+
+<!-- KaTeX + marked extension: provides window.katex and window.markedKatex.
+     Pages that render markdown register it via marked.use(markedKatex(...)). -->
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.4/lib/index.umd.js"></script>
 
 {% block scripts %}{% endblock %}
 </body>

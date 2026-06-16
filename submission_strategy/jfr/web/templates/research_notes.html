@@ -76,7 +76,7 @@
 let currentNoteId = null;
 let currentRawContent = '';
 let mdReady = false;
-try { marked.use({ gfm: true, breaks: true }); mdReady = true; } catch (e) {}
+try { marked.use({ gfm: true, breaks: true }); if (window.markedKatex) marked.use(markedKatex({ throwOnError: false })); mdReady = true; } catch (e) {}
 
 document.addEventListener('DOMContentLoaded', loadNotes);
 

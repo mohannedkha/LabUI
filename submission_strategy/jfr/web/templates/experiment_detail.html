@@ -139,7 +139,7 @@ const RESULTS_MD = {{ (exp.results_md or '') | tojson }};
 const NOTES_MD = {{ (exp.notes_md or '') | tojson }};
 
 let mdReady = false;
-try { marked.use({ gfm: true, breaks: true }); mdReady = true; } catch (e) {}
+try { marked.use({ gfm: true, breaks: true }); if (window.markedKatex) marked.use(markedKatex({ throwOnError: false })); mdReady = true; } catch (e) {}
 
 document.addEventListener('DOMContentLoaded', () => {
   const rm = document.getElementById('results-md');
