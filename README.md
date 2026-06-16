@@ -64,7 +64,7 @@ upload page's *Auto-index* panel, or via `GET /api/rag/status`.
 > **First index is slower.** On the very first run, `docling` downloads its PDF layout models
 > (~hundreds of MB, one-time) before parsing. Subsequent indexing is much faster.
 
-## Configuration (everything is env-overridable — nothing hardcoded)
+## Configuration 
 
 | Variable | Default | Purpose |
 |---|---|---|
