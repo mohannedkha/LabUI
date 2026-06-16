@@ -42,7 +42,7 @@ if str(_LOCAL_RAG_DIR) not in sys.path:
 
 from config import (  # noqa: E402  — comes from Local_Rag/rag/config.py
     OLLAMA_BASE_URL, GEN_MODEL, GEN_MODEL_ALIAS, GEN_MODEL_PREFER,
-    DB_PATH, SUMMARIES_DIR, FINAL_TOP_K, NOTES_DIR, PARSED_DIR,
+    DB_PATH, SUMMARIES_DIR, FINAL_TOP_K, NOTES_DIR, PARSED_DIR, DATA_DIR,
     PAPERS_PDF_DIR, INGEST_POLL_INTERVAL, RAG_ROOT,
     GEN_NUM_CTX, GEN_TEMPERATURE, GEN_TOP_P,
     STYLE_DIR, STYLE_MAX_CHARS,
@@ -155,6 +155,63 @@ def _list_pdf_files() -> list:
         p for p in PAPERS_PDF_DIR.iterdir()
         if p.is_file() and p.suffix.lower() == ".pdf" and not p.name.startswith("._")
     )
+
+
+# ── Clips (saved figures + highlights from the in-app PDF reader) ─────────────
+CLIPS_DIR = DATA_DIR / "clips"
+CLIPS_DB = DATA_DIR / "clips.db"
+
+
+def _open_clips_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(CLIPS_DB))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_clips_db() -> None:
+    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+    conn = _open_clips_db()
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS clips (
+            clip_id       TEXT PRIMARY KEY,
+            paper_id      TEXT NOT NULL,
+            page          INTEGER DEFAULT 1,
+            type          TEXT NOT NULL,          -- 'figure' | 'highlight'
+            text          TEXT DEFAULT '',
+            note          TEXT DEFAULT '',
+            image_path    TEXT DEFAULT '',        -- relative to CLIPS_DIR
+            rect          TEXT DEFAULT '',        -- JSON [x,y,w,h]
+            manuscript_id TEXT DEFAULT '',
+            created_at    REAL NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_clips_paper ON clips(paper_id)")
+    conn.commit()
+    conn.close()
+
+
+def _new_clip_id() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_") + \
+        base64.urlsafe_b64encode(os.urandom(4)).decode().rstrip("=")
+
+
+def _delete_clips_for_paper(paper_id: str) -> int:
+    """Remove a paper's clips + their image files (called from delete-paper)."""
+    try:
+        conn = _open_clips_db()
+        rows = conn.execute("SELECT image_path FROM clips WHERE paper_id=?", (paper_id,)).fetchall()
+        conn.execute("DELETE FROM clips WHERE paper_id=?", (paper_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        return 0
+    for r in rows:
+        if r["image_path"]:
+            try:
+                (CLIPS_DIR / r["image_path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+    return len(rows)
 
 
 def _existing_paper_ids() -> set[str]:
@@ -809,11 +866,15 @@ def api_paper_delete(paper_id: str):
     except Exception as e:
         graph_result = {"error": str(e)}
 
+    # saved clips (figures/highlights) for this paper
+    clips_removed = _delete_clips_for_paper(paper_id)
+
     return {
         "ok": True, "paper_id": paper_id,
         "chunks_removed": len(chunk_ids),
         "pdf_removed": pdf_removed,
         "graph": graph_result,
+        "clips_removed": clips_removed,
     }
 
 
@@ -984,6 +1045,100 @@ def api_note_delete(note_id: str):
     if not p.exists():
         raise HTTPException(404, "not found")
     p.unlink()
+    return {"ok": True}
+
+
+# ── /clips — saved figures + highlights from the in-app PDF reader ─────────────
+class ClipCreate(BaseModel):
+    paper_id: str
+    page: int = 1
+    type: str = "highlight"          # 'figure' | 'highlight'
+    text: str = ""
+    note: str = ""
+    rect: Optional[list] = None
+    image_b64: Optional[str] = None  # PNG data-URL or raw base64 (figure clips)
+
+
+@router.post("/clips")
+def api_clip_create(body: ClipCreate):
+    pid = (body.paper_id or "").strip()
+    if not pid:
+        raise HTTPException(400, "paper_id required")
+    ctype = body.type if body.type in ("figure", "highlight") else "highlight"
+    clip_id = _new_clip_id()
+    image_path = ""
+
+    if ctype == "figure":
+        if not body.image_b64:
+            raise HTTPException(400, "figure clip requires image_b64")
+        try:
+            raw = base64.b64decode(body.image_b64.split(",", 1)[-1])
+        except Exception:
+            raise HTTPException(400, "invalid image data")
+        (CLIPS_DIR / pid).mkdir(parents=True, exist_ok=True)
+        (CLIPS_DIR / pid / f"{clip_id}.png").write_bytes(raw)
+        image_path = f"{pid}/{clip_id}.png"
+    elif not (body.text or "").strip():
+        raise HTTPException(400, "highlight clip requires text")
+
+    conn = _open_clips_db()
+    conn.execute(
+        "INSERT INTO clips (clip_id, paper_id, page, type, text, note, image_path,"
+        " rect, manuscript_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (clip_id, pid, int(body.page or 1), ctype, (body.text or "").strip(),
+         (body.note or "").strip(), image_path, json.dumps(body.rect or []), "", time.time()),
+    )
+    conn.commit()
+    conn.close()
+    return {"clip_id": clip_id, "type": ctype, "image_path": image_path}
+
+
+@router.get("/clips")
+def api_clips_list(paper_id: str = Query("")):
+    conn = _open_clips_db()
+    if paper_id.strip():
+        rows = conn.execute(
+            "SELECT * FROM clips WHERE paper_id=? ORDER BY created_at DESC",
+            (paper_id.strip(),),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM clips ORDER BY created_at DESC LIMIT 500").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@router.get("/clips/{clip_id}/image")
+def api_clip_image(clip_id: str):
+    if not re.match(r"^[\w\-]+$", clip_id):
+        raise HTTPException(400, "invalid id")
+    conn = _open_clips_db()
+    row = conn.execute("SELECT image_path FROM clips WHERE clip_id=?", (clip_id,)).fetchone()
+    conn.close()
+    if not row or not row["image_path"]:
+        raise HTTPException(404, "no image for this clip")
+    p = CLIPS_DIR / row["image_path"]
+    if not p.exists():
+        raise HTTPException(404, "image file missing")
+    return FileResponse(str(p), media_type="image/png")
+
+
+@router.delete("/clips/{clip_id}")
+def api_clip_delete(clip_id: str):
+    if not re.match(r"^[\w\-]+$", clip_id):
+        raise HTTPException(400, "invalid id")
+    conn = _open_clips_db()
+    row = conn.execute("SELECT image_path FROM clips WHERE clip_id=?", (clip_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "not found")
+    conn.execute("DELETE FROM clips WHERE clip_id=?", (clip_id,))
+    conn.commit()
+    conn.close()
+    if row["image_path"]:
+        try:
+            (CLIPS_DIR / row["image_path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -1346,3 +1501,4 @@ def init_databases() -> None:
     _sweep_macos_sidecars()
     _mem.init_db()
     _init_graph_db()
+    _init_clips_db()
