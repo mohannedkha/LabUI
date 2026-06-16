@@ -209,7 +209,11 @@ def run(limit: int | None = None) -> None:
     library = _load_library()
     converter = DocumentConverter()
 
-    pdfs = sorted(PAPERS_PDF_DIR.glob("*.pdf"))
+    # Case-insensitive match (.pdf/.PDF) — glob('*.pdf') would miss `Foo.PDF`.
+    pdfs = sorted(
+        p for p in PAPERS_PDF_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() == ".pdf" and not p.name.startswith("._")
+    )
     if limit:
         pdfs = pdfs[:limit]
 

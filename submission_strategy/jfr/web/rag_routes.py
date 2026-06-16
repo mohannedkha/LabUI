@@ -144,6 +144,18 @@ def resolve_gen_model(force: bool = False) -> str:
     return chosen
 
 
+def _list_pdf_files() -> list:
+    """All PDFs in the papers dir, matched case-insensitively (.pdf / .PDF / …)
+    and skipping macOS `._` sidecars. Python's glob('*.pdf') is case-sensitive,
+    so a file saved as `Foo.PDF` would otherwise be invisible to the indexer."""
+    if not PAPERS_PDF_DIR.exists():
+        return []
+    return sorted(
+        p for p in PAPERS_PDF_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() == ".pdf" and not p.name.startswith("._")
+    )
+
+
 def _existing_paper_ids() -> set[str]:
     """Paper IDs already in the index. Returns an empty set when the DB or its
     `papers` table doesn't exist yet — i.e. a fresh instance with nothing indexed.
@@ -221,7 +233,7 @@ def _auto_index_loop() -> None:
             # DB may not exist yet on a fresh instance — build_index creates it.
             existing_ids = _existing_paper_ids()
 
-            pdf_files = list(PAPERS_PDF_DIR.glob("*.pdf"))
+            pdf_files = _list_pdf_files()
             pdf_id_map = {_pdf_slug(p.stem): p for p in pdf_files}
             new_ids = set(pdf_id_map.keys()) - existing_ids
             _ingest_state["new_count"] = len(new_ids)
@@ -764,7 +776,11 @@ async def api_papers_upload(files: list[UploadFile] = File(...)):
             raw_name = upload.filename or "upload.pdf"
             base = os.path.basename(raw_name)  # strip any path
             base = re.sub(r"[^\w\.\-\s -￿]", "_", base).strip()
-            if not base.lower().endswith(".pdf"):
+            # Normalize the extension to lowercase `.pdf` (a saved `Foo.PDF` is
+            # otherwise skipped by the indexer's case-sensitive matching).
+            if base.lower().endswith(".pdf"):
+                base = base[:-4] + ".pdf"
+            else:
                 base = base + ".pdf"
             base = base[:200]  # cap length
             dest = PAPERS_PDF_DIR / base
@@ -982,7 +998,7 @@ def _trigger_ingest_once() -> None:
         # Detect new vs existing (DB may not exist yet on a fresh instance —
         # build_index creates it from scratch).
         existing_ids = _existing_paper_ids()
-        pdf_files = list(PAPERS_PDF_DIR.glob("*.pdf"))
+        pdf_files = _list_pdf_files()
         new_ids = {_pdf_slug(p.stem) for p in pdf_files} - existing_ids
 
         if not new_ids:
