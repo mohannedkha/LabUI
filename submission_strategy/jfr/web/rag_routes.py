@@ -663,7 +663,10 @@ def api_query(body: QueryBody):
             )
 
             try:
-                _mem.add_turn(session_id, "assistant", answer + references, agent_id, chunks)
+                _mem.add_turn(
+                    session_id, "assistant", answer + references, agent_id,
+                    sources=papers_meta, web=web_results,
+                )
             except Exception:
                 pass
             _mem_executor.submit(_async_extract_memory, query, answer, session_id, tok, emb, base_url, gen_model)

@@ -212,18 +212,26 @@ async function loadSession(id) {
     lastChunks = [];
     const msgs = document.getElementById('messages');
     msgs.innerHTML = '';
-    document.getElementById('sources-list').innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">Sources from this turn aren\'t cached.<br/>Ask a new question to see retrieved papers.</div>';
-    document.getElementById('web-list').innerHTML    = '<div class="text-ink-400 text-center py-8 text-xs">Web results aren\'t cached.</div>';
+    document.getElementById('sources-list').innerHTML = '<div class="text-ink-400 text-center py-8 text-xs">No sources for this conversation.</div>';
+    document.getElementById('web-list').innerHTML    = '<div class="text-ink-400 text-center py-8 text-xs">No web results for this conversation.</div>';
     document.getElementById('papers-count').textContent = '—';
     document.getElementById('web-count').textContent    = '—';
     document.getElementById('cite-status').textContent  = '';
     showSourceTab('papers');
-    let lastUser = '';
+    let lastUser = '', lastSources = null, lastWeb = null;
     (data.turns || []).forEach(t => {
       const el = addMessage(t.role, t.content, t.role === 'assistant');
-      if (t.role === 'user') lastUser = t.content;
-      else if (t.role === 'assistant') addAnswerActions(el, lastUser || data.title || '', t.content);
+      if (t.role === 'user') { lastUser = t.content; return; }
+      addAnswerActions(el, lastUser || data.title || '', t.content);
+      const src = t.sources || [], web = t.web || [];
+      if (src.length || web.length) {
+        addTurnSourcesButton(el, src, web);
+        lastSources = src; lastWeb = web;
+      }
     });
+    // Restore the most recent turn's sources/web into the side panel so they
+    // persist with the conversation (click a turn's "Sources" button for others).
+    if (lastSources || lastWeb) showTurnSources(lastSources || [], lastWeb || []);
     loadSessions();
   } catch (e) {
     toast('Failed to load session: ' + e.message);
@@ -326,10 +334,11 @@ async function sendQuery() {
   };
 
   let collected = '';
+  let turnSources = [], turnWeb = [];
   try {
     await streamSSE('/api/rag/query', body, {
       session: (d) => { currentSessionId = d.session_id; if (d.is_new) loadSessions(); },
-      papers: (d) => { lastChunks = d.papers || []; renderSources(d.papers || []); },
+      papers: (d) => { lastChunks = d.papers || []; turnSources = d.papers || []; renderSources(d.papers || []); },
       token: (d) => {
         collected += d.text;
         assistantEl.querySelector('.md-body').innerHTML = renderMd(collected);
@@ -344,9 +353,10 @@ async function sendQuery() {
         status.textContent = d.citations_ok ? '✓ citations verified' : '⚠ unverified citations';
         status.className = 'text-[11px] ' + (d.citations_ok ? 'text-emerald-500' : 'text-amber-500');
         addAnswerActions(assistantEl, query, collected);
+        addTurnSourcesButton(assistantEl, turnSources, turnWeb);
       },
       memories: (d) => { /* could show in a memories drawer */ },
-      web_results: (d) => { renderWeb(Array.isArray(d) ? d : (d.results || [])); },
+      web_results: (d) => { const w = Array.isArray(d) ? d : (d.results || []); turnWeb = w; renderWeb(w); },
       error: (d) => {
         assistantEl.querySelector('.md-body').innerHTML = `<div class="text-red-500 text-sm">Error: ${escapeHtml(d.message)}</div>`;
       },
@@ -447,6 +457,28 @@ function addAnswerActions(assistantEl, query, text) {
   bar.appendChild(copy);
 
   bubble.appendChild(bar);
+}
+
+// Load a specific turn's sources + web into the side panel.
+function showTurnSources(sources, web) {
+  sources = sources || []; web = web || [];
+  lastChunks = sources;            // so [n] citation chips resolve
+  renderSources(sources);
+  renderWeb(web);
+}
+
+// Add a "Sources N · Web M" button to an answer's action bar that reopens that
+// turn's sources in the side panel.
+function addTurnSourcesButton(assistantEl, sources, web) {
+  const bar = assistantEl && assistantEl.querySelector('.answer-actions');
+  if (!bar || bar.querySelector('.turn-sources-btn')) return;
+  const n = (sources || []).length, m = (web || []).length;
+  if (!n && !m) return;
+  const btn = document.createElement('button');
+  btn.className = 'turn-sources-btn text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 px-2.5 py-1 rounded-md';
+  btn.textContent = `📎 Sources${n ? ' ' + n : ''}${m ? ' · Web ' + m : ''}`;
+  btn.onclick = () => { showTurnSources(sources, web); showSourceTab(n >= m ? 'papers' : 'web'); };
+  bar.appendChild(btn);
 }
 
 async function saveAnswerToNotes(query, content, btn) {

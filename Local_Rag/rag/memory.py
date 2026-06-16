@@ -58,6 +58,8 @@ def init_db() -> None:
             content     TEXT NOT NULL,
             agent_id    TEXT,
             papers_json TEXT DEFAULT '[]',      -- JSON list of paper_ids cited
+            sources_json TEXT DEFAULT '[]',     -- full source cards (n, title, doi, pages…)
+            web_json    TEXT DEFAULT '[]',      -- web results for this turn
             created_at  REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_turns_session
@@ -80,6 +82,12 @@ def init_db() -> None:
             memory_id UNINDEXED
         );
     """)
+
+    # Idempotent migration for DBs created before per-turn sources/web existed.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(turns)").fetchall()}
+    for col in ("sources_json", "web_json"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE turns ADD COLUMN {col} TEXT DEFAULT '[]'")
 
     # memories_vec — requires sqlite-vec (graceful no-op if unavailable)
     try:
@@ -135,7 +143,8 @@ def get_session(session_id: str) -> dict | None:
         return None
 
     turns = conn.execute(
-        "SELECT turn_id, turn_index, role, content, agent_id, papers_json, created_at"
+        "SELECT turn_id, turn_index, role, content, agent_id, papers_json,"
+        " sources_json, web_json, created_at"
         " FROM turns WHERE session_id = ? ORDER BY turn_index",
         (session_id,),
     ).fetchall()
@@ -144,7 +153,12 @@ def get_session(session_id: str) -> dict | None:
     return {
         **dict(row),
         "turns": [
-            {**dict(t), "papers": json.loads(t["papers_json"] or "[]")}
+            {
+                **dict(t),
+                "papers": json.loads(t["papers_json"] or "[]"),
+                "sources": json.loads(t["sources_json"] or "[]"),
+                "web": json.loads(t["web_json"] or "[]"),
+            }
             for t in turns
         ],
     }
@@ -156,6 +170,8 @@ def add_turn(
     content: str,
     agent_id: str | None = None,
     papers: list[dict] | None = None,
+    sources: list[dict] | None = None,
+    web: list[dict] | None = None,
 ) -> str:
     turn_id = str(uuid.uuid4())
     now = time.time()
@@ -166,13 +182,21 @@ def add_turn(
         (session_id,),
     ).fetchone()[0]
 
-    papers_json = json.dumps([p.get("paper_id", "") for p in (papers or [])])
+    # `sources` are the full numbered source cards shown in the UI; `papers` is a
+    # legacy id-only list. Persist the full cards + web results so a reopened
+    # conversation keeps its sources.
+    cards = sources if sources is not None else (papers or [])
+    papers_json = json.dumps([p.get("paper_id", "") for p in cards])
+    sources_json = json.dumps(sources or [])
+    web_json = json.dumps(web or [])
 
     conn.execute(
         "INSERT INTO turns"
-        " (turn_id, session_id, turn_index, role, content, agent_id, papers_json, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?)",
-        (turn_id, session_id, idx, role, content, agent_id, papers_json, now),
+        " (turn_id, session_id, turn_index, role, content, agent_id,"
+        "  papers_json, sources_json, web_json, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (turn_id, session_id, idx, role, content, agent_id,
+         papers_json, sources_json, web_json, now),
     )
     conn.execute(
         "UPDATE sessions SET updated_at=?, turn_count=turn_count+1"
