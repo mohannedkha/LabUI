@@ -17,6 +17,8 @@ own PDFs and they get indexed directly.
 - **Paper search** (`/research/search`) — hybrid BM25 + dense (bge-m3) retrieval, reranked.
 - **Upload** (`/research/upload`) — drag in PDFs **or a whole folder**; they auto-index.
 - **Notes** (`/research/notes`) — save answers and write-ups; one Markdown file each.
+- **Markdown + LaTeX math** — chat answers, notes, and experiment results render Markdown with
+  KaTeX, so inline `$E = mc^2$` and display `$$\frac{a}{b}$$` math typeset properly.
 - **Journal-Fit** (`/journals`, `/manuscripts`) — match a manuscript to candidate journals.
   Ships with a starter set of 23 venues; add more from the **/journals** page by searching
   online (Crossref, by name or ISSN) or entering them manually.
