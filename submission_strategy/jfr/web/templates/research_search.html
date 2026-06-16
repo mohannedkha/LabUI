@@ -143,6 +143,8 @@ function renderResult(r, idx) {
                     class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">View paper</button>
             <a href="/api/rag/pdf?id=${encodeURIComponent(r.paper_id)}" target="_blank"
                class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Open PDF ↗</a>
+            <button onclick="deletePaper('${escapeJs(r.paper_id)}')"
+                    class="text-[11px] bg-ink-100 dark:bg-ink-800 hover:bg-rose-100 dark:hover:bg-rose-950 hover:text-rose-700 text-ink-700 dark:text-ink-200 px-2.5 py-1 rounded-md">Delete</button>
             <div class="flex items-center gap-1 ml-auto">
               <select id="lt-${safeId}" class="text-[11px] bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-1">
                 ${LINK_TYPES.map(t => `<option value="${t}"${t === 'related' ? ' selected' : ''}>${t}</option>`).join('')}
@@ -154,6 +156,20 @@ function renderResult(r, idx) {
         </div>
       </div>
     </article>`;
+}
+
+async function deletePaper(paperId) {
+  if (!confirm(`Delete "${paperId}" and ALL its indexing — chunks, vectors, knowledge-graph entries, and the PDF file?\n\nThis cannot be undone.`)) return;
+  try {
+    const r = await fetch('/api/rag/paper/' + encodeURIComponent(paperId), { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+    const g = d.graph || {};
+    const gpart = (g.entities_removed || g.entities_updated)
+      ? `, graph: -${g.entities_removed || 0} entities` : '';
+    toast(`Deleted ${paperId.slice(0, 28)} — ${d.chunks_removed} chunks${d.pdf_removed ? ', PDF' : ''}${gpart}`);
+    runSearch();   // refresh the result list
+  } catch (e) { alert('Delete failed: ' + e.message); }
 }
 
 async function linkResult(paperId) {

@@ -42,7 +42,7 @@ if str(_LOCAL_RAG_DIR) not in sys.path:
 
 from config import (  # noqa: E402  — comes from Local_Rag/rag/config.py
     OLLAMA_BASE_URL, GEN_MODEL, GEN_MODEL_ALIAS, GEN_MODEL_PREFER,
-    DB_PATH, SUMMARIES_DIR, FINAL_TOP_K, NOTES_DIR,
+    DB_PATH, SUMMARIES_DIR, FINAL_TOP_K, NOTES_DIR, PARSED_DIR,
     PAPERS_PDF_DIR, INGEST_POLL_INTERVAL, RAG_ROOT,
     GEN_NUM_CTX, GEN_TEMPERATURE, GEN_TOP_P,
     STYLE_DIR, STYLE_MAX_CHARS,
@@ -63,6 +63,7 @@ from retrieval.graph import (  # noqa: E402
     search_entities_fts as _search_entities,
     expand_entity_neighbors as _expand_neighbors,
     get_chunks_for_entities as _entity_chunks,
+    remove_paper as _graph_remove_paper,
 )
 
 
@@ -747,6 +748,73 @@ def api_pdf(id: str = Query("")):
         if p.exists():
             return FileResponse(str(p), media_type="application/pdf", filename=p.name)
     raise HTTPException(404, "PDF not found")
+
+
+# ── /paper (DELETE) ────────────────────────────────────────────────────────────
+@router.delete("/paper/{paper_id}")
+def api_paper_delete(paper_id: str):
+    """Remove a paper and ALL its index traces: chunks (+ FTS + vectors), the
+    papers row, its parsed JSON, the source PDF (so the auto-indexer won't re-add
+    it), and its knowledge-graph entries."""
+    paper_id = (paper_id or "").strip()
+    if not re.match(r"^[\w\-]+$", paper_id):
+        raise HTTPException(400, "invalid id")
+    if not DB_PATH.exists():
+        raise HTTPException(404, "database not found")
+
+    conn = _open_db()
+    try:
+        row = conn.execute("SELECT source_pdf FROM papers WHERE paper_id=?", (paper_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "paper not found")
+        source_pdf = row[0]
+        chunk_ids = [r[0] for r in conn.execute(
+            "SELECT chunk_id FROM chunks WHERE paper_id=?", (paper_id,)).fetchall()]
+        if chunk_ids:
+            conn.executemany("DELETE FROM chunks_vec WHERE chunk_id=?", [(c,) for c in chunk_ids])
+        conn.execute("DELETE FROM chunks WHERE paper_id=?", (paper_id,))
+        conn.execute("DELETE FROM papers WHERE paper_id=?", (paper_id,))
+        # External-content FTS5: rebuild to drop the deleted chunks' terms.
+        try:
+            conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+        except Exception:
+            pass
+        conn.commit()
+    except HTTPException:
+        conn.close()
+        raise
+    except Exception as e:
+        conn.close()
+        raise HTTPException(500, str(e))
+    conn.close()
+
+    # parsed JSON
+    try:
+        (PARSED_DIR / f"{paper_id}.json").unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    # source PDF — remove so the auto-index daemon doesn't re-ingest it
+    pdf_removed = False
+    try:
+        if source_pdf and Path(source_pdf).exists():
+            Path(source_pdf).unlink()
+            pdf_removed = True
+    except Exception:
+        pass
+
+    # knowledge graph
+    try:
+        graph_result = _graph_remove_paper(paper_id)
+    except Exception as e:
+        graph_result = {"error": str(e)}
+
+    return {
+        "ok": True, "paper_id": paper_id,
+        "chunks_removed": len(chunk_ids),
+        "pdf_removed": pdf_removed,
+        "graph": graph_result,
+    }
 
 
 # ── /upload ───────────────────────────────────────────────────────────────────

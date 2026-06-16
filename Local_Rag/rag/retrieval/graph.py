@@ -264,6 +264,56 @@ def get_chunks_for_entities(entity_ids: list[str], limit: int = 30) -> list[str]
     return [r["chunk_id"] for r in rows]
 
 
+def remove_paper(paper_id: str) -> dict:
+    """Remove all graph traces of one paper.
+
+    - delete its relations and entity_chunks rows
+    - strip the paper_id from every entity's paper_ids list (and decrement
+      chunk_count by the chunks contributed by this paper)
+    - delete entities left with no papers (and their FTS rows; FK cascade clears
+      any dangling relations/entity_chunks)
+
+    Returns counts. Safe to call when the graph is empty / never built.
+    """
+    conn = _open_db()
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        # chunks this paper contributed per entity (for chunk_count fixups)
+        per_entity = {
+            r["entity_id"]: r["c"] for r in conn.execute(
+                "SELECT entity_id, COUNT(*) AS c FROM entity_chunks"
+                " WHERE paper_id=? GROUP BY entity_id", (paper_id,),
+            ).fetchall()
+        }
+        conn.execute("DELETE FROM entity_chunks WHERE paper_id=?", (paper_id,))
+        conn.execute("DELETE FROM relations WHERE paper_id=?", (paper_id,))
+
+        removed_entities = updated_entities = 0
+        rows = conn.execute(
+            "SELECT entity_id, paper_ids, chunk_count FROM entities"
+            " WHERE paper_ids LIKE ?", (f'%"{paper_id}"%',),
+        ).fetchall()
+        for r in rows:
+            pids = [p for p in json.loads(r["paper_ids"] or "[]") if p != paper_id]
+            if not pids:
+                conn.execute("DELETE FROM entities WHERE entity_id=?", (r["entity_id"],))
+                conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (r["entity_id"],))
+                removed_entities += 1
+            else:
+                new_count = max(0, (r["chunk_count"] or 0) - per_entity.get(r["entity_id"], 0))
+                conn.execute(
+                    "UPDATE entities SET paper_ids=?, chunk_count=? WHERE entity_id=?",
+                    (json.dumps(pids), new_count, r["entity_id"]),
+                )
+                updated_entities += 1
+        conn.commit()
+        return {"entities_removed": removed_entities, "entities_updated": updated_entities}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
 def get_graph_data(
     paper_ids: list[str] | None = None,
     entity_limit: int = 300,
