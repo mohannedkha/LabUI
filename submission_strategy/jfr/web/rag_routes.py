@@ -214,6 +214,58 @@ def _delete_clips_for_paper(paper_id: str) -> int:
     return len(rows)
 
 
+def _index_clip_chunk(clip_id: str, paper_id: str, text: str, page: int) -> bool:
+    """Add a saved clip's text to the main search index as a citable chunk so the
+    chat/search can retrieve your highlighted passages. No-op when the embedder
+    isn't loaded or the paper isn't indexed."""
+    text = (text or "").strip()
+    if not text:
+        return False
+    tok, emb, _ = _get_models()
+    if emb is None or not DB_PATH.exists():
+        return False
+    try:
+        from retrieval.embed import embed_texts
+        vec = embed_texts(tok, emb, [text])[0].astype("float32")
+        conn = _open_db()
+        try:
+            if not conn.execute("SELECT 1 FROM papers WHERE paper_id=?", (paper_id,)).fetchone():
+                return False
+            chunk_id = f"clip_{clip_id}"
+            conn.execute(
+                "INSERT OR REPLACE INTO chunks"
+                " (chunk_id, paper_id, section_name, page_start, page_end, position, text)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (chunk_id, paper_id, "Saved highlight", page, page, 1000000, text),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO chunks_vec (chunk_id, embedding) VALUES (?,?)",
+                (chunk_id, vec.tobytes()),
+            )
+            conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
+def _unindex_clip_chunk(clip_id: str) -> None:
+    if not DB_PATH.exists():
+        return
+    try:
+        conn = _open_db()
+        cid = f"clip_{clip_id}"
+        conn.execute("DELETE FROM chunks_vec WHERE chunk_id=?", (cid,))
+        conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def _existing_paper_ids() -> set[str]:
     """Paper IDs already in the index. Returns an empty set when the DB or its
     `papers` table doesn't exist yet — i.e. a fresh instance with nothing indexed.
@@ -1090,7 +1142,14 @@ def api_clip_create(body: ClipCreate):
     )
     conn.commit()
     conn.close()
-    return {"clip_id": clip_id, "type": ctype, "image_path": image_path}
+
+    # Make it searchable: highlight text (+ note), or a figure's caption.
+    index_text = (body.text or "").strip()
+    if (body.note or "").strip():
+        index_text = (index_text + "\n\n" + body.note.strip()).strip()
+    indexed = _index_clip_chunk(clip_id, pid, index_text, int(body.page or 1))
+
+    return {"clip_id": clip_id, "type": ctype, "image_path": image_path, "indexed": indexed}
 
 
 @router.get("/clips")
@@ -1139,6 +1198,7 @@ def api_clip_delete(clip_id: str):
             (CLIPS_DIR / row["image_path"]).unlink(missing_ok=True)
         except Exception:
             pass
+    _unindex_clip_chunk(clip_id)
     return {"ok": True}
 
 
