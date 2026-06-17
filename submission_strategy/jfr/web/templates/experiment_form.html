@@ -14,7 +14,7 @@
         <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Name <span class="text-rose-500">*</span></label>
         <input id="f-name" name="name" type="text" required
                value="{{ exp.name if exp else '' }}"
-               placeholder="e.g. Nanobubble generation @ 100 mM NaCl"
+               placeholder="e.g. Pilot run — condition A"
                class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
       </div>
 
@@ -56,7 +56,7 @@
         <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Tags</label>
         <input id="f-tags" type="text"
                value="{{ exp.tags | join(', ') if exp else '' }}"
-               placeholder="NTA, foam stability, surfactant"
+               placeholder="e.g. method A, method B, assay"
                class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm">
         <p class="text-[11px] text-ink-400 mt-1">Comma-separated</p>
       </div>

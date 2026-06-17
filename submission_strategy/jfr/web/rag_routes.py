@@ -537,6 +537,26 @@ def api_status():
     }
 
 
+# ── /papers/sample — a few indexed titles, for dynamic chat examples ──────────
+@router.get("/papers/sample")
+def api_papers_sample(n: int = Query(4)):
+    """Return a random handful of indexed papers (id + title). Used to build the
+    chat's example prompts from the user's actual library. Empty when nothing is
+    indexed yet."""
+    if not DB_PATH.exists():
+        return {"papers": []}
+    try:
+        conn = _open_db()
+        rows = conn.execute(
+            "SELECT paper_id, title FROM papers ORDER BY RANDOM() LIMIT ?",
+            (max(1, min(int(n or 4), 12)),),
+        ).fetchall()
+        conn.close()
+        return {"papers": [{"paper_id": r[0], "title": r[1] or r[0]} for r in rows]}
+    except Exception:
+        return {"papers": []}
+
+
 # ── /search ───────────────────────────────────────────────────────────────────
 class SearchBody(BaseModel):
     query: str

@@ -41,7 +41,7 @@
         <label class="block text-sm font-medium text-ink-700 dark:text-ink-200 mb-1">Techniques</label>
         {% set techs = ms.techniques_json | from_json %}
         <input name="techniques" type="text" value="{{ techs | join(', ') }}"
-               placeholder="NTA, zeta potential, XDLVO, molecular dynamics"
+               placeholder="e.g. spectroscopy, microscopy, simulation"
                class="w-full bg-ink-50 dark:bg-ink-800 border border-ink-200 dark:border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
         <p class="text-xs text-ink-400 mt-1">Comma-separated.</p>
       </div>

@@ -284,21 +284,25 @@ function showSourceTab(tab) {
     (papersOn ? 'border-transparent text-ink-500 dark:text-ink-400' : 'border-brand-500 text-brand-700 dark:text-brand-300');
 }
 
-// ── Examples ──────────────────────────────────────────────────
-function renderExamples() {
-  const examples = [
-    'What stabilizes bulk nanobubbles?',
-    'Compare surfactant systems for foam EOR.',
-    'Recent advances in nanobubble characterization?',
-    'How is zeta potential used in nanobubble studies?',
-  ];
+// ── Examples (built from the user's actual indexed papers) ────
+async function renderExamples() {
   const wrap = document.getElementById('example-queries');
   if (!wrap) return;
   wrap.innerHTML = '';
-  examples.forEach(q => {
+  let papers = [];
+  try {
+    const d = await fetch('/api/rag/papers/sample?n=4').then(r => r.json());
+    papers = d.papers || [];
+  } catch (e) { /* leave empty */ }
+  if (!papers.length) return;   // nothing indexed yet → no examples
+  papers.forEach(p => {
+    const title = (p.title || p.paper_id).trim();
+    const label = title.length > 64 ? title.slice(0, 61) + '…' : title;
+    const q = `Summarize the key findings of "${title}".`;
     const b = document.createElement('button');
-    b.className = 'text-xs px-3 py-1.5 bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 rounded-full transition';
-    b.textContent = q;
+    b.className = 'text-xs px-3 py-1.5 bg-ink-100 dark:bg-ink-800 hover:bg-brand-100 dark:hover:bg-brand-950 text-ink-600 dark:text-ink-300 rounded-full transition max-w-full truncate';
+    b.textContent = label;
+    b.title = q;
     b.onclick = () => { document.getElementById('prompt').value = q; sendQuery(); };
     wrap.appendChild(b);
   });
