@@ -51,9 +51,9 @@ tqdm>=4.68
 # ── Optional: knowledge-graph extraction (the /research/graph features) ───────
 # Heavy (~spaCy model + GLiNER). Install only if you use the entity graph:
 #   pip install "gliner>=0.2.27" "spacy>=3.8" && python -m spacy download en_core_web_sm
-# gliner>=0.2.27
-# spacy>=3.8
+gliner>=0.2.27
+spacy>=3.8
 
 # ── Optional: retrieval evaluation (ragas) — not needed to run the app ────────
-# ragas>=0.4
-# datasets
+ragas>=0.4
+datasets
