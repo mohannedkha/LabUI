@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[rag] startup FAILED (jfr still usable, RAG endpoints will 503): {e}")
         app.state.rag_ready = False
+
+    # Journal corpus: weekly scheduled refresh + auto-populate when empty.
+    try:
+        from jfr.web.corpus_tasks import start_corpus_scheduler
+        start_corpus_scheduler()
+    except Exception as e:
+        print(f"[corpus] scheduler init failed (manual refresh still works): {e}")
     yield
 
 
@@ -271,7 +278,7 @@ def create_manuscript_api(body: ManuscriptCreate):
 def recommend_api(ms_id: str, top: int = Query(10, ge=1, le=30)):
     from jfr.tracker import get_manuscript
     from jfr.matching import ManuscriptInput, recommend as _recommend
-    from qdrant_client import QdrantClient
+    from jfr.web.corpus_tasks import open_vectors
 
     conn = _conn()
     ms = get_manuscript(conn, ms_id)
@@ -286,15 +293,12 @@ def recommend_api(ms_id: str, top: int = Query(10, ge=1, le=30)):
         techniques=json.loads(ms["techniques_json"]),
         figures=json.loads(ms["figures_json"]),
     )
-    qc = QdrantClient(path=str(_settings.vectors_dir))
-    try:
+    with open_vectors(_settings) as qc:
         results = _recommend(
             inp, conn, qc, policy,
             _settings.abstract_model, _settings.claim_model,
             top_n=top, manuscript_id=ms_id,
         )
-    finally:
-        qc.close()
     return [r.to_dict() for r in results]
 
 
@@ -545,7 +549,7 @@ def recommend_page(request: Request, ms: str = ""):
 def htmx_recommend(request: Request, ms_id: str, top: int = Query(10, ge=1, le=15)):
     from jfr.tracker import get_manuscript
     from jfr.matching import ManuscriptInput, recommend as _recommend
-    from qdrant_client import QdrantClient
+    from jfr.web.corpus_tasks import open_vectors
 
     conn = _conn()
     ms = get_manuscript(conn, ms_id)
@@ -562,15 +566,12 @@ def htmx_recommend(request: Request, ms_id: str, top: int = Query(10, ge=1, le=1
         techniques=json.loads(ms["techniques_json"]),
         figures=json.loads(ms["figures_json"]),
     )
-    qc = QdrantClient(path=str(_settings.vectors_dir))
-    try:
+    with open_vectors(_settings) as qc:
         results = _recommend(
             inp, conn, qc, policy,
             _settings.abstract_model, _settings.claim_model,
             top_n=top, manuscript_id=ms_id,
         )
-    finally:
-        qc.close()
     result_dicts = [r.to_dict() for r in results]
 
     return templates.TemplateResponse(request, "_results_partial.html", {
@@ -718,9 +719,32 @@ def journals_page(request: Request):
         d["embedded_count"] = counts["embedded_count"] or 0
         journals.append(d)
 
+    from jfr.web.corpus_tasks import get_status as _corpus_status
     return templates.TemplateResponse(request, "journals.html", {
         "journals": journals,
+        "corpus_status": _corpus_status(),
     })
+
+
+# ── API: corpus refresh (fetch recent articles + embed) ──────────────────────
+
+@app.get("/api/corpus/refresh/status")
+def corpus_refresh_status_api():
+    """Live status of the background corpus refresh (for UI polling)."""
+    from jfr.web.corpus_tasks import get_status
+    return get_status()
+
+
+@app.post("/api/corpus/refresh/run")
+def corpus_refresh_run_api(journal_id: Optional[str] = Query(None)):
+    """Kick a one-shot corpus refresh in the background. Pass ?journal_id= to
+    refresh a single journal, otherwise all journals are refreshed."""
+    from jfr.web.corpus_tasks import trigger_refresh, get_status
+    started = trigger_refresh(journal_ids=[journal_id] if journal_id else None)
+    status = get_status()
+    if not started:
+        return {"started": False, "message": "A refresh is already running.", "status": status}
+    return {"started": True, "message": "Corpus refresh started.", "status": status}
 
 
 # ── API: RAG ↔ JFR cross-feature (manuscript context, paper links, lab view) ──

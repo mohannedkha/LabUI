@@ -40,6 +40,36 @@
   <div id="add-status" class="mt-2 text-xs"></div>
 </div>
 
+<!-- ── Corpus refresh ──────────────────────────────────────────── -->
+<div class="mb-5 bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+  <div class="flex items-center justify-between gap-4">
+    <div class="min-w-0">
+      <h3 class="text-sm font-semibold text-gray-800">Journal corpus</h3>
+      <p id="corpus-msg" class="text-xs text-gray-500 mt-0.5">{{ corpus_status.message }}</p>
+    </div>
+    <button id="corpus-refresh-btn" onclick="refreshCorpus()"
+            class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+      Refresh now
+    </button>
+  </div>
+
+  <!-- live progress (shown while a refresh is running) -->
+  <div id="corpus-progress" class="mt-3 hidden">
+    <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+      <div id="corpus-bar" class="h-full bg-indigo-500 rounded-full transition-all duration-500" style="width:0%"></div>
+    </div>
+    <div class="mt-1.5 flex justify-between text-xs text-gray-400">
+      <span id="corpus-detail"></span>
+      <span id="corpus-counts"></span>
+    </div>
+  </div>
+
+  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+    <span id="corpus-last"></span>
+    <span id="corpus-next"></span>
+  </div>
+</div>
+
 <!-- ── Journal table ───────────────────────────────────────────── -->
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
   <table class="w-full text-sm">
@@ -205,6 +235,89 @@ async function deleteJournal(id, name) {
 }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Corpus refresh ──────────────────────────────────────────────────────────
+let corpusPoll = null;
+let corpusWasRunning = false;
+
+function fmtTime(iso) {
+  if (!iso) return null;
+  try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+}
+
+function renderCorpus(st) {
+  if (!st) return;
+  const btn = document.getElementById('corpus-refresh-btn');
+  const prog = document.getElementById('corpus-progress');
+  document.getElementById('corpus-msg').textContent = st.message || '';
+
+  btn.disabled = !!st.running;
+  btn.textContent = st.running ? 'Refreshing…' : 'Refresh now';
+
+  if (st.running) {
+    prog.classList.remove('hidden');
+    const total = st.journals_total || 0;
+    const done = st.journals_done || 0;
+    const pct = total ? Math.round((done / total) * 100) : 8;
+    document.getElementById('corpus-bar').style.width = pct + '%';
+    const phase = st.phase === 'embedding' ? 'Embedding' : 'Fetching';
+    document.getElementById('corpus-detail').textContent =
+      `${phase}${st.journal ? ' · ' + st.journal : ''} (${done}/${total})`;
+    document.getElementById('corpus-counts').textContent =
+      `+${st.articles_added || 0} articles · +${st.vectors_added || 0} vectors`;
+  } else {
+    prog.classList.add('hidden');
+  }
+
+  const last = fmtTime(st.last_run);
+  const next = fmtTime(st.next_run);
+  document.getElementById('corpus-last').textContent = last ? 'Last run: ' + last : '';
+  document.getElementById('corpus-next').textContent =
+    st.scheduled && next ? 'Next scheduled: ' + next : (st.scheduled ? '' : 'Auto-refresh disabled');
+
+  // When a run finishes, reload so the Articles/Embedded columns reflect it.
+  if (corpusWasRunning && !st.running) {
+    if (corpusPoll) { clearInterval(corpusPoll); corpusPoll = null; }
+    setTimeout(() => location.reload(), 800);
+  }
+  corpusWasRunning = !!st.running;
+}
+
+async function pollCorpusOnce() {
+  try {
+    const r = await fetch('/api/corpus/refresh/status');
+    if (r.ok) renderCorpus(await r.json());
+  } catch (e) { /* transient — keep polling */ }
+}
+
+function startCorpusPolling() {
+  if (corpusPoll) return;
+  corpusPoll = setInterval(pollCorpusOnce, 2000);
+}
+
+async function refreshCorpus() {
+  const btn = document.getElementById('corpus-refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/corpus/refresh/run', { method: 'POST' });
+    const d = await r.json();
+    renderCorpus(d.status);
+    startCorpusPolling();
+  } catch (e) {
+    document.getElementById('corpus-msg').textContent = 'Failed to start refresh: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Refresh now';
+  }
+}
+
+// Initial render from server-provided status; poll if a run is in flight.
+(function () {
+  const initial = {{ corpus_status | tojson }};
+  renderCorpus(initial);
+  corpusWasRunning = !!(initial && initial.running);
+  if (initial && initial.running) startCorpusPolling();
+})();
 </script>
 {% endblock %}
 </content>
