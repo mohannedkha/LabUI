@@ -287,11 +287,14 @@ def recommend_api(ms_id: str, top: int = Query(10, ge=1, le=30)):
         figures=json.loads(ms["figures_json"]),
     )
     qc = QdrantClient(path=str(_settings.vectors_dir))
-    results = _recommend(
-        inp, conn, qc, policy,
-        _settings.abstract_model, _settings.claim_model,
-        top_n=top, manuscript_id=ms_id,
-    )
+    try:
+        results = _recommend(
+            inp, conn, qc, policy,
+            _settings.abstract_model, _settings.claim_model,
+            top_n=top, manuscript_id=ms_id,
+        )
+    finally:
+        qc.close()
     return [r.to_dict() for r in results]
 
 
@@ -560,11 +563,14 @@ def htmx_recommend(request: Request, ms_id: str, top: int = Query(10, ge=1, le=1
         figures=json.loads(ms["figures_json"]),
     )
     qc = QdrantClient(path=str(_settings.vectors_dir))
-    results = _recommend(
-        inp, conn, qc, policy,
-        _settings.abstract_model, _settings.claim_model,
-        top_n=top, manuscript_id=ms_id,
-    )
+    try:
+        results = _recommend(
+            inp, conn, qc, policy,
+            _settings.abstract_model, _settings.claim_model,
+            top_n=top, manuscript_id=ms_id,
+        )
+    finally:
+        qc.close()
     result_dicts = [r.to_dict() for r in results]
 
     return templates.TemplateResponse(request, "_results_partial.html", {
