@@ -28,6 +28,101 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logging.getLogger("RapidOCR").setLevel(logging.ERROR)
 log = logging.getLogger(__name__)
 
+# ── Garbled-text detection (broken PDF font encoding) ─────────────────────────
+# Some PDFs embed fonts with a missing/broken ToUnicode map. The page renders the
+# right shapes, but text extraction yields glyph soup: raw Adobe glyph names like
+# "/a114" and decorative Unicode (dingbats, geometric shapes, math-alphanumerics)
+# standing in for letters. We detect that and re-parse the PDF with forced OCR.
+
+# Unicode blocks that are normal *symbols* but become noise when a font (mis)uses
+# them as letter glyphs.
+_SUS_RANGES = (
+    (0x2190, 0x21FF),    # Arrows
+    (0x2460, 0x24FF),    # Enclosed Alphanumerics
+    (0x2500, 0x257F),    # Box Drawing
+    (0x2580, 0x25FF),    # Block Elements + Geometric Shapes (▼ ▲ ● ◆ …)
+    (0x2600, 0x26FF),    # Miscellaneous Symbols (♠ ♥ ☀ …)
+    (0x2700, 0x27BF),    # Dingbats (❈ ❍ ❆ ❯ ✉ ✐ …)
+    (0x1D400, 0x1D7FF),  # Mathematical Alphanumeric Symbols
+    (0x1F100, 0x1F1FF),  # Enclosed Alphanumeric Supplement
+    (0xE000, 0xF8FF),    # Private Use Area
+)
+
+# Raw glyph-name tokens that leak into extracted text, e.g. "/a114", "/g3", "/uni0041".
+_GLYPH_TOKEN_RE = re.compile(r"/(?:uni[0-9A-Fa-f]{4}|[A-Za-z]{1,4}\d{1,4})")
+
+
+def _is_sus_char(ch: str) -> bool:
+    o = ord(ch)
+    return any(lo <= o <= hi for lo, hi in _SUS_RANGES)
+
+
+def garbage_ratio(text: str) -> float:
+    """Fraction of meaningful glyphs that are unreadable (0.0 clean … 1.0 garbage)."""
+    if not text:
+        return 0.0
+    glyph_tokens = _GLYPH_TOKEN_RE.findall(text)
+    stripped = _GLYPH_TOKEN_RE.sub(" ", text)
+    good = sus = 0
+    for ch in stripped:
+        if _is_sus_char(ch):
+            sus += 1
+        elif ch.isalnum():
+            good += 1
+    bad = sus + len(glyph_tokens)
+    total = good + bad
+    return bad / total if total else 0.0
+
+
+def _sections_text(sections: list[dict], title: str | None = None, cap: int = 40000) -> str:
+    parts = [title or ""]
+    parts.extend(s.get("text", "") for s in (sections or []))
+    return " ".join(p for p in parts if p)[:cap]
+
+
+def is_garbled(sections: list[dict], title: str | None = None,
+               *, min_chars: int = 80, threshold: float = 0.25) -> bool:
+    """True when extracted text is dominated by glyph soup and worth re-OCRing."""
+    sample = _sections_text(sections, title)
+    if len(sample) < min_chars:
+        return False
+    return garbage_ratio(sample) >= threshold
+
+
+_ocr_converter: DocumentConverter | None = None
+_ocr_unavailable = False
+
+
+def _get_ocr_converter() -> DocumentConverter | None:
+    """Lazily build a DocumentConverter that forces full-page OCR, bypassing the
+    PDF's (broken) embedded text layer. Returns None if OCR can't be configured."""
+    global _ocr_converter, _ocr_unavailable
+    if _ocr_converter is not None:
+        return _ocr_converter
+    if _ocr_unavailable:
+        return None
+    try:
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import PdfFormatOption
+
+        opts = PdfPipelineOptions()
+        opts.do_ocr = True
+        # Re-OCR the whole page instead of trusting the embedded text layer.
+        try:
+            opts.ocr_options.force_full_page_ocr = True
+        except Exception:
+            pass
+        _ocr_converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+        )
+        return _ocr_converter
+    except Exception as e:  # OCR engine/deps missing — degrade gracefully.
+        log.warning("Full-page OCR unavailable (%s); keeping best-effort text.", e)
+        _ocr_unavailable = True
+        return None
+
+
 # Section names that are back-matter / non-content → routed to references_raw,
 # never indexed as retrievable chunks.
 _REF_HEAD_RE = re.compile(
@@ -92,7 +187,10 @@ def _page_of(item) -> int | None:
 
 def _is_junk_title(t: str) -> bool:
     t = (t or "").strip()
-    return len(t) < 6 or bool(_JUNK_TITLE_RE.search(t))
+    if len(t) < 6 or bool(_JUNK_TITLE_RE.search(t)):
+        return True
+    # Glyph-soup title from a broken font encoding → treat as junk.
+    return garbage_ratio(t) >= 0.25
 
 
 def _extract_structured(doc) -> tuple[str | None, list[dict], str]:
@@ -149,20 +247,9 @@ def _extract_structured(doc) -> tuple[str | None, list[dict], str]:
     return doc_title, sections, "\n".join(refs_parts).strip()
 
 
-def parse_pdf(pdf_path: Path, library: dict, converter: DocumentConverter) -> dict | None:
-    paper_id = _slug(pdf_path)
-    stem = pdf_path.stem
-
-    try:
-        result = converter.convert(str(pdf_path))
-        doc = result.document
-    except Exception as e:
-        log.error("Docling failed for %s: %s", pdf_path.name, e)
-        return None
-
+def _extract_with_fallback(doc) -> tuple[str | None, list[dict], str]:
+    """Structured extraction, falling back to flat markdown if it yields nothing."""
     doc_title, body_sections, refs_raw = _extract_structured(doc)
-
-    # Fallback: if structured extraction produced nothing, use flat markdown.
     if not body_sections:
         try:
             md = doc.export_to_markdown()
@@ -171,6 +258,43 @@ def parse_pdf(pdf_path: Path, library: dict, converter: DocumentConverter) -> di
         if md.strip():
             body_sections = [{"name": "Body", "text": md.strip(),
                               "page_start": 1, "page_end": 1}]
+    return doc_title, body_sections, refs_raw
+
+
+def _convert(converter: DocumentConverter, pdf_path: Path):
+    try:
+        return converter.convert(str(pdf_path)).document
+    except Exception as e:
+        log.error("Docling failed for %s: %s", pdf_path.name, e)
+        return None
+
+
+def parse_pdf(pdf_path: Path, library: dict, converter: DocumentConverter) -> dict | None:
+    paper_id = _slug(pdf_path)
+    stem = pdf_path.stem
+
+    doc = _convert(converter, pdf_path)
+    if doc is None:
+        return None
+
+    doc_title, body_sections, refs_raw = _extract_with_fallback(doc)
+
+    # Broken font encoding → glyph soup. Re-parse this PDF with forced full-page
+    # OCR and keep whichever extraction is cleaner.
+    if is_garbled(body_sections, doc_title):
+        ocr_conv = _get_ocr_converter()
+        if ocr_conv is not None:
+            log.warning("Garbled text in %s (ratio %.2f) — retrying with full-page OCR…",
+                        pdf_path.name, garbage_ratio(_sections_text(body_sections, doc_title)))
+            ocr_doc = _convert(ocr_conv, pdf_path)
+            if ocr_doc is not None:
+                o_title, o_sections, o_refs = _extract_with_fallback(ocr_doc)
+                if o_sections and garbage_ratio(_sections_text(o_sections, o_title)) < \
+                        garbage_ratio(_sections_text(body_sections, doc_title)):
+                    doc_title = o_title or doc_title
+                    body_sections = o_sections
+                    refs_raw = o_refs or refs_raw
+                    log.info("OCR recovered readable text for %s", pdf_path.name)
 
     # --- Title: prefer Docling's detected title, then library, then filename ---
     lib_entry = library.get(stem, {})
@@ -204,7 +328,7 @@ def parse_pdf(pdf_path: Path, library: dict, converter: DocumentConverter) -> di
     }
 
 
-def run(limit: int | None = None) -> None:
+def run(limit: int | None = None, force: bool = False) -> None:
     PARSED_DIR.mkdir(parents=True, exist_ok=True)
     library = _load_library()
     converter = DocumentConverter()
@@ -220,7 +344,7 @@ def run(limit: int | None = None) -> None:
     skipped, ok = [], 0
     for pdf_path in pdfs:
         out_path = PARSED_DIR / f"{_slug(pdf_path)}.json"
-        if out_path.exists():
+        if out_path.exists() and not force:
             ok += 1
             continue
 
@@ -242,5 +366,7 @@ def run(limit: int | None = None) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--force", action="store_true",
+                        help="Re-parse even if a cached JSON already exists")
     args = parser.parse_args()
-    run(args.limit)
+    run(args.limit, force=args.force)

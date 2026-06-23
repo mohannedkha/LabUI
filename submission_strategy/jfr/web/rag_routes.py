@@ -1372,6 +1372,65 @@ def api_ingest_run():
     return {"status": "started"}
 
 
+# ── /reprocess-garbled — re-OCR papers that indexed as glyph soup ─────────────
+# Some PDFs have broken font encodings; their text extracts as unreadable glyph
+# soup. This purges those papers and rebuilds them through the OCR-aware parser.
+_reprocess_state: dict = {"running": False, "message": "Idle", "found": None, "repaired": None}
+_reprocess_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reprocess-garbled")
+
+
+def _run_reprocess() -> None:
+    try:
+        _reprocess_state.update({"running": True, "found": None, "repaired": None,
+                                 "message": "Scanning library for garbled papers…"})
+
+        def _tail(out: str, err: str, n: int = 200) -> str:
+            body = (err.strip() or out.strip() or "").splitlines()
+            body = [ln for ln in body if ln.strip()]
+            return (" │ ".join(body[-3:]) or "(no output)")[-n:]
+
+        r = subprocess.run([sys.executable, "-m", "ingest.reprocess_garbled"],
+                           capture_output=True, text=True, cwd=str(RAG_ROOT))
+        if r.returncode != 0:
+            _reprocess_state.update({"running": False, "last_returncode": r.returncode,
+                                     "message": f"Reprocess failed (exit {r.returncode}): {_tail(r.stdout, r.stderr)}"})
+            return
+        # The script prints a JSON summary as its last block; parse it if present.
+        found = repaired = None
+        try:
+            import json as _json
+            start = r.stdout.rfind("{")
+            if start != -1:
+                summary = _json.loads(r.stdout[start:])
+                found, repaired = summary.get("found"), summary.get("repaired")
+        except Exception:
+            pass
+        msg = (f"Repaired {repaired} of {found} garbled paper(s) ✓"
+               if found is not None else "Reprocess complete ✓")
+        if found == 0:
+            msg = "No garbled papers found — library is clean ✓"
+        _reprocess_state.update({"running": False, "last_returncode": 0,
+                                 "found": found, "repaired": repaired, "message": msg})
+    except Exception as e:
+        _reprocess_state.update({"running": False, "message": f"Reprocess error: {e}"})
+
+
+@router.get("/reprocess-garbled/status")
+def api_reprocess_status():
+    return _reprocess_state
+
+
+@router.post("/reprocess-garbled")
+def api_reprocess_garbled():
+    """Find papers indexed with garbled (broken-font) text and rebuild them with OCR."""
+    if _reprocess_state.get("running"):
+        raise HTTPException(409, "Reprocess already running; wait for it to finish")
+    if _ingest_state.get("running"):
+        raise HTTPException(409, "Indexer is running; wait for it to finish first")
+    _reprocess_executor.submit(_run_reprocess)
+    return {"status": "started"}
+
+
 # ── /sessions ─────────────────────────────────────────────────────────────────
 @router.get("/sessions")
 def api_sessions_list():

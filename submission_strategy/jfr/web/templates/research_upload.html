@@ -94,6 +94,24 @@
       </div>
     </div>
 
+    <div class="tile">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-400">Fix garbled text</div>
+        <button id="btn-reocr" onclick="triggerReprocess()"
+          class="text-[11px] bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-1 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed">
+          Re-OCR
+        </button>
+      </div>
+      <p class="text-xs text-ink-600 dark:text-ink-300 leading-relaxed">
+        Some PDFs have broken font encodings and index as unreadable glyph soup.
+        This finds those papers and rebuilds them with full-page OCR. New uploads are
+        repaired automatically — use this for papers already in your library.
+      </p>
+      <div class="mt-3 text-[11px]">
+        <div class="flex items-center gap-2"><span class="status-dot" id="reocr-running"></span><span id="reocr-msg" class="text-ink-400 text-[11px] truncate">Idle</span></div>
+      </div>
+    </div>
+
     <div class="tile-inverted">
       <div class="relative z-10">
         <div class="text-[11px] uppercase tracking-wider font-semibold text-brand-700 dark:text-brand-300">Next step</div>
@@ -297,6 +315,40 @@ async function triggerReindex() {
   }
   setTimeout(() => { btn.disabled = false; btn.textContent = 'Index now'; }, 3500);
 }
+
+// ── Re-OCR garbled papers ─────────────────────────────────────
+let reocrPoll = null;
+async function triggerReprocess() {
+  const btn = document.getElementById('btn-reocr');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/rag/reprocess-garbled', { method: 'POST' });
+    if (r.status === 409) { btn.textContent = 'Busy'; }
+    else if (!r.ok) { btn.textContent = 'Failed'; }
+    else { btn.textContent = 'Running…'; startReocrPolling(); }
+    refreshReocrStatus();
+  } catch (e) { btn.textContent = 'Error'; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Re-OCR'; }, 3500);
+}
+
+async function refreshReocrStatus() {
+  try {
+    const r = await fetch('/api/rag/reprocess-garbled/status');
+    const s = await r.json();
+    document.getElementById('reocr-msg').textContent = s.message || 'Idle';
+    const dot = document.getElementById('reocr-running');
+    dot.classList.remove('ok', 'warn', 'err', 'pulse');
+    if (s.running) dot.classList.add('warn', 'pulse');
+    else if (s.repaired || s.found === 0) dot.classList.add('ok');
+    if (!s.running && reocrPoll) { clearInterval(reocrPoll); reocrPoll = null; }
+  } catch (e) {}
+}
+
+function startReocrPolling() {
+  if (reocrPoll) return;
+  reocrPoll = setInterval(refreshReocrStatus, 3000);
+}
+refreshReocrStatus();
 
 // ── Live status: index + auto-index ───────────────────────────
 async function refreshUploadStatus() {
