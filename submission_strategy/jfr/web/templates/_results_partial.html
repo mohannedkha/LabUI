@@ -1,6 +1,6 @@
 {% set passed = results | selectattr("policy_passed") | list %}
 {% set failed = results | rejectattr("policy_passed") | list %}
-{% set max_score = (passed | map(attribute="score") | list or [1]) | max %}
+{% set max_score = (passed | map(attribute="score") | list or [1]) | max or 1 %}
 
 <div class="space-y-3">
   <div class="text-sm text-gray-500 mb-1">
