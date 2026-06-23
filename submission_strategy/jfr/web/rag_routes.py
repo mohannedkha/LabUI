@@ -145,6 +145,117 @@ def resolve_gen_model(force: bool = False) -> str:
     return chosen
 
 
+# ── Paper summaries (LLM-generated, cached on the papers row) ─────────────────
+# Earlier builds read pre-baked markdown from output/individual/*.md, which is no
+# longer produced — so summaries were always blank and the UI fell back to the
+# bare section list. We now generate a real, self-contained prose summary with
+# the local model from the paper's own text and cache it in papers.summary.
+
+# Sections richest in summarisable content, tried first within the char budget.
+_SUMMARY_PRIORITY = (
+    "abstract", "summary", "introduction", "conclusion", "conclusions",
+    "discussion", "results",
+)
+
+
+def _ensure_summary_col(conn: sqlite3.Connection) -> None:
+    have = {r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()}
+    if "summary" not in have:
+        conn.execute("ALTER TABLE papers ADD COLUMN summary TEXT")
+        conn.commit()
+
+
+def _gather_paper_text(conn: sqlite3.Connection, paper_id: str, max_chars: int = 8000) -> str:
+    """Assemble representative paper text for summarisation, leading with the
+    abstract/intro/conclusion and filling with the rest in reading order."""
+    rows = conn.execute(
+        "SELECT section_name, text FROM chunks WHERE paper_id = ? ORDER BY position",
+        (paper_id,),
+    ).fetchall()
+    if not rows:
+        return ""
+
+    def priority(name: str) -> int:
+        n = (name or "").strip().lower()
+        for i, key in enumerate(_SUMMARY_PRIORITY):
+            if n.startswith(key):
+                return i
+        return len(_SUMMARY_PRIORITY)
+
+    ordered = sorted(enumerate(rows), key=lambda t: (priority(t[1][0]), t[0]))
+    out: list[str] = []
+    total = 0
+    for _, (_sec, txt) in ordered:
+        block = (txt or "").strip()
+        if not block:
+            continue
+        if total + len(block) > max_chars:
+            block = block[: max(0, max_chars - total)]
+        out.append(block)
+        total += len(block)
+        if total >= max_chars:
+            break
+    return "\n\n".join(out)
+
+
+def _summarize_with_llm(title: str, text: str, model: str, base_url: str) -> str:
+    system = (
+        "You are a scientific editor writing a concise, self-contained summary of a "
+        "research paper for a busy researcher deciding whether to read it. "
+        "Write 150-220 words of flowing prose in one or two paragraphs covering: the "
+        "problem and motivation, the approach or methods, the key findings or results, "
+        "and why the work matters. "
+        "Do NOT output a table of contents, a list of section headings, bullet points, or "
+        "markdown headers. Do not invent details that are not supported by the text. "
+        "If the provided text is too garbled or sparse to summarize, reply with exactly: "
+        "INSUFFICIENT_TEXT"
+    )
+    user = f"Title: {title}\n\nPaper excerpts:\n{text}"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "stream": False,
+        "options": {"temperature": 0.3, "top_p": 0.9, "num_ctx": 8192},
+    }
+    r = requests.post(f"{base_url}/api/chat", json=payload, timeout=240)
+    r.raise_for_status()
+    return (r.json().get("message", {}).get("content") or "").strip()
+
+
+def summarize_paper(conn: sqlite3.Connection, paper_id: str, force: bool = False) -> str:
+    """Return a cached summary, generating and caching one if absent. Returns ""
+    when there is too little usable text or no model is available."""
+    _ensure_summary_col(conn)
+    if not force:
+        row = conn.execute("SELECT summary FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+        if row and row[0]:
+            return row[0]
+
+    trow = conn.execute("SELECT title FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    if not trow:
+        return ""
+    title = trow[0] or paper_id
+
+    text = _gather_paper_text(conn, paper_id)
+    if len(text) < 200:
+        return ""
+
+    model = resolve_gen_model()
+    if not model:
+        return ""
+
+    summary = _summarize_with_llm(title, text, model, OLLAMA_BASE_URL)
+    if not summary or summary.strip() == "INSUFFICIENT_TEXT":
+        return ""
+
+    conn.execute("UPDATE papers SET summary = ? WHERE paper_id = ?", (summary, paper_id))
+    conn.commit()
+    return summary
+
+
 def _list_pdf_files() -> list:
     """All PDFs in the papers dir, matched case-insensitively (.pdf / .PDF / …)
     and skipping macOS `._` sidecars. Python's glob('*.pdf') is case-sensitive,
@@ -376,6 +487,9 @@ def _auto_index_loop() -> None:
                         _ingest_state["message"] = f"build_index failed (exit {r2.returncode}): {_tail(r2.stdout, r2.stderr)}"
                     else:
                         _ingest_state["message"] = f"Indexed {len(new_ids)} paper(s) ✓"
+                        # Generate summaries for the newly indexed papers in the
+                        # background so they're ready when the user opens a paper.
+                        _summary_executor.submit(_run_summary_build)
                 _ingest_state["running"] = False
             else:
                 _ingest_state["message"] = f"Up to date ({len(pdf_files)} PDFs)"
@@ -822,8 +936,9 @@ def api_paper(id: str = Query("")):
 
     try:
         conn = _open_db()
+        _ensure_summary_col(conn)
         row = conn.execute(
-            "SELECT title, authors, year, source_pdf FROM papers WHERE paper_id = ?",
+            "SELECT title, authors, year, source_pdf, summary FROM papers WHERE paper_id = ?",
             (paper_id,),
         ).fetchone()
         sections = conn.execute(
@@ -838,14 +953,16 @@ def api_paper(id: str = Query("")):
     if not row:
         raise HTTPException(404, "paper not found")
 
-    summary_text = ""
-    try:
-        for md in SUMMARIES_DIR.glob("*.md"):
-            if paper_id in md.stem or paper_id.replace("_", " ") in md.stem:
-                summary_text = md.read_text(encoding="utf-8", errors="replace")
-                break
-    except Exception:
-        pass
+    # Prefer the cached LLM summary; fall back to legacy markdown if present.
+    summary_text = row[4] or ""
+    if not summary_text:
+        try:
+            for md in SUMMARIES_DIR.glob("*.md"):
+                if paper_id in md.stem or paper_id.replace("_", " ") in md.stem:
+                    summary_text = md.read_text(encoding="utf-8", errors="replace")
+                    break
+        except Exception:
+            pass
 
     pdf_available = bool(row[3] and Path(row[3]).exists())
     return {
@@ -853,7 +970,95 @@ def api_paper(id: str = Query("")):
         "source_pdf": row[3], "pdf_available": pdf_available,
         "sections": [{"name": s[0], "page_start": s[1], "page_end": s[2]} for s in sections],
         "summary": summary_text,
+        "summary_ready": bool(summary_text),
     }
+
+
+# ── /paper/summarize — generate (and cache) a summary on demand ────────────────
+@router.post("/paper/summarize")
+def api_paper_summarize(id: str = Query(""), force: bool = Query(False)):
+    paper_id = id.strip()
+    if not paper_id:
+        raise HTTPException(400, "missing id parameter")
+    if not DB_PATH.exists():
+        raise HTTPException(404, "database not found")
+    conn = _open_db()
+    try:
+        summary = summarize_paper(conn, paper_id, force=force)
+    except requests.RequestException as e:
+        raise HTTPException(503, f"Model request failed: {e}")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+    if not summary:
+        raise HTTPException(
+            422,
+            "Could not generate a summary — the paper text may be too sparse or garbled, "
+            "or no Ollama model is installed.",
+        )
+    return {"paper_id": paper_id, "summary": summary}
+
+
+# ── /summaries/build — background pass over papers missing a summary ──────────
+_summary_state: dict = {"running": False, "message": "Idle", "done": 0, "total": 0}
+_summary_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="summarize")
+
+
+def _run_summary_build(force: bool = False) -> None:
+    try:
+        if not DB_PATH.exists():
+            _summary_state.update({"running": False, "message": "No index yet"})
+            return
+        conn = _open_db()
+        _ensure_summary_col(conn)
+        if force:
+            rows = conn.execute("SELECT paper_id FROM papers").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT paper_id FROM papers WHERE summary IS NULL OR summary = ''"
+            ).fetchall()
+        ids = [r[0] for r in rows]
+
+        if not ids:
+            conn.close()
+            _summary_state.update({"running": False, "done": 0, "total": 0,
+                                   "message": "All papers already summarized ✓"})
+            return
+
+        if not resolve_gen_model():
+            conn.close()
+            _summary_state.update({"running": False, "message": "No Ollama model installed."})
+            return
+
+        _summary_state.update({"running": True, "total": len(ids), "done": 0,
+                               "message": f"Summarizing {len(ids)} paper(s)…"})
+        done = 0
+        for pid in ids:
+            try:
+                summarize_paper(conn, pid, force=force)
+            except Exception as e:
+                print(f"[summary] failed for {pid}: {e}")
+            done += 1
+            _summary_state.update({"done": done, "message": f"Summarized {done}/{len(ids)}…"})
+        conn.close()
+        _summary_state.update({"running": False, "message": f"Done — {len(ids)} summary(ies) ✓"})
+    except Exception as e:
+        _summary_state.update({"running": False, "message": f"Summary build error: {e}"})
+
+
+@router.get("/summaries/build/status")
+def api_summaries_status():
+    return _summary_state
+
+
+@router.post("/summaries/build")
+def api_summaries_build(force: bool = Query(False)):
+    """Generate summaries for all papers that lack one (or all, with force=true)."""
+    if _summary_state.get("running"):
+        raise HTTPException(409, "Summary build already running; wait for it to finish")
+    _summary_executor.submit(_run_summary_build, force)
+    return {"status": "started"}
 
 
 # ── /pdf ──────────────────────────────────────────────────────────────────────
@@ -1359,6 +1564,8 @@ def _trigger_ingest_once() -> None:
             return
         _ingest_state.update({"running": False, "last_returncode": 0,
                               "message": f"Indexed {len(new_ids)} paper(s) ✓"})
+        # Generate summaries for the newly indexed papers in the background.
+        _summary_executor.submit(_run_summary_build)
     except Exception as e:
         _ingest_state.update({"running": False, "message": f"Trigger error: {e}"})
 
@@ -1411,6 +1618,9 @@ def _run_reprocess() -> None:
             msg = "No garbled papers found — library is clean ✓"
         _reprocess_state.update({"running": False, "last_returncode": 0,
                                  "found": found, "repaired": repaired, "message": msg})
+        # Repaired papers were re-indexed with empty summaries — regenerate them.
+        if repaired:
+            _summary_executor.submit(_run_summary_build)
     except Exception as e:
         _reprocess_state.update({"running": False, "message": f"Reprocess error: {e}"})
 

@@ -112,6 +112,23 @@
       </div>
     </div>
 
+    <div class="tile">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-400">Summaries</div>
+        <button id="btn-summaries" onclick="triggerSummaries()"
+          class="text-[11px] bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-1 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed">
+          Generate
+        </button>
+      </div>
+      <p class="text-xs text-ink-600 dark:text-ink-300 leading-relaxed">
+        Clear, self-contained paper summaries written by the local model. They're generated
+        automatically after indexing — use this to (re)generate any that are missing.
+      </p>
+      <div class="mt-3 text-[11px]">
+        <div class="flex items-center gap-2"><span class="status-dot" id="sum-running"></span><span id="sum-msg" class="text-ink-400 text-[11px] truncate">Idle</span></div>
+      </div>
+    </div>
+
     <div class="tile-inverted">
       <div class="relative z-10">
         <div class="text-[11px] uppercase tracking-wider font-semibold text-brand-700 dark:text-brand-300">Next step</div>
@@ -349,6 +366,40 @@ function startReocrPolling() {
   reocrPoll = setInterval(refreshReocrStatus, 3000);
 }
 refreshReocrStatus();
+
+// ── Generate paper summaries ──────────────────────────────────
+let sumPoll = null;
+async function triggerSummaries() {
+  const btn = document.getElementById('btn-summaries');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/rag/summaries/build', { method: 'POST' });
+    if (r.status === 409) { btn.textContent = 'Busy'; }
+    else if (!r.ok) { btn.textContent = 'Failed'; }
+    else { btn.textContent = 'Running…'; startSumPolling(); }
+    refreshSumStatus();
+  } catch (e) { btn.textContent = 'Error'; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Generate'; }, 3500);
+}
+
+async function refreshSumStatus() {
+  try {
+    const r = await fetch('/api/rag/summaries/build/status');
+    const s = await r.json();
+    document.getElementById('sum-msg').textContent = s.message || 'Idle';
+    const dot = document.getElementById('sum-running');
+    dot.classList.remove('ok', 'warn', 'err', 'pulse');
+    if (s.running) dot.classList.add('warn', 'pulse');
+    else if ((s.message || '').includes('✓')) dot.classList.add('ok');
+    if (!s.running && sumPoll) { clearInterval(sumPoll); sumPoll = null; }
+  } catch (e) {}
+}
+
+function startSumPolling() {
+  if (sumPoll) return;
+  sumPoll = setInterval(refreshSumStatus, 3000);
+}
+refreshSumStatus();
 
 // ── Live status: index + auto-index ───────────────────────────
 async function refreshUploadStatus() {
