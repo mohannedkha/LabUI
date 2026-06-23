@@ -146,33 +146,14 @@ def resolve_gen_model(force: bool = False) -> str:
 
 
 # ── Reasoning-model handling (Qwen3 / DeepSeek-R1 / QwQ "thinking") ───────────
-# Hybrid reasoning models emit a <think>…</think> block before the answer. We ask
-# Ollama to skip it (think=False) and also strip any leaked blocks defensively, so
-# summaries and chat never show raw chain-of-thought.
-import re as _re
-
-_THINK_BLOCK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL | _re.IGNORECASE)
-
-
-def _is_reasoning_model(name: str) -> bool:
-    n = (name or "").lower()
-    return any(k in n for k in ("qwen3", "deepseek-r1", "-r1", "qwq", "reasoning", "thinking"))
-
-
-def _apply_thinking_off(payload: dict, model: str) -> dict:
-    """Disable chain-of-thought for reasoning models (Ollama top-level `think`)."""
-    if _is_reasoning_model(model):
-        payload["think"] = False
-    return payload
-
-
-def _strip_think(text: str) -> str:
-    """Remove <think>…</think> blocks from a completed response."""
-    out = _THINK_BLOCK_RE.sub("", text)
-    # Drop an unmatched leading think (open tag with no close, or stray close).
-    if "</think>" in out and "<think>" not in out:
-        out = out.split("</think>", 1)[1]
-    return out.strip()
+# The summarisation core + think-handling live in generation.summarize so the
+# web app and the bulk CLI share one implementation. _filter_think_stream is the
+# only streaming-specific piece and stays here (used by the chat SSE path).
+from generation.summarize import (
+    apply_thinking_off as _apply_thinking_off,
+    ensure_summary_col as _ensure_summary_col,
+    summarize_paper as _summarize_paper_core,
+)
 
 
 def _filter_think_stream(token_iter):
@@ -209,117 +190,10 @@ def _filter_think_stream(token_iter):
         yield buf
 
 
-# ── Paper summaries (LLM-generated, cached on the papers row) ─────────────────
-# Earlier builds read pre-baked markdown from output/individual/*.md, which is no
-# longer produced — so summaries were always blank and the UI fell back to the
-# bare section list. We now generate a real, self-contained prose summary with
-# the local model from the paper's own text and cache it in papers.summary.
-
-# Sections richest in summarisable content, tried first within the char budget.
-_SUMMARY_PRIORITY = (
-    "abstract", "summary", "introduction", "conclusion", "conclusions",
-    "discussion", "results",
-)
-
-
-def _ensure_summary_col(conn: sqlite3.Connection) -> None:
-    have = {r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()}
-    if "summary" not in have:
-        conn.execute("ALTER TABLE papers ADD COLUMN summary TEXT")
-        conn.commit()
-
-
-def _gather_paper_text(conn: sqlite3.Connection, paper_id: str, max_chars: int = 8000) -> str:
-    """Assemble representative paper text for summarisation, leading with the
-    abstract/intro/conclusion and filling with the rest in reading order."""
-    rows = conn.execute(
-        "SELECT section_name, text FROM chunks WHERE paper_id = ? ORDER BY position",
-        (paper_id,),
-    ).fetchall()
-    if not rows:
-        return ""
-
-    def priority(name: str) -> int:
-        n = (name or "").strip().lower()
-        for i, key in enumerate(_SUMMARY_PRIORITY):
-            if n.startswith(key):
-                return i
-        return len(_SUMMARY_PRIORITY)
-
-    ordered = sorted(enumerate(rows), key=lambda t: (priority(t[1][0]), t[0]))
-    out: list[str] = []
-    total = 0
-    for _, (_sec, txt) in ordered:
-        block = (txt or "").strip()
-        if not block:
-            continue
-        if total + len(block) > max_chars:
-            block = block[: max(0, max_chars - total)]
-        out.append(block)
-        total += len(block)
-        if total >= max_chars:
-            break
-    return "\n\n".join(out)
-
-
-def _summarize_with_llm(title: str, text: str, model: str, base_url: str) -> str:
-    system = (
-        "You are a scientific editor writing a concise, self-contained summary of a "
-        "research paper for a busy researcher deciding whether to read it. "
-        "Write 150-220 words of flowing prose in one or two paragraphs covering: the "
-        "problem and motivation, the approach or methods, the key findings or results, "
-        "and why the work matters. "
-        "Do NOT output a table of contents, a list of section headings, bullet points, or "
-        "markdown headers. Do not invent details that are not supported by the text. "
-        "If the provided text is too garbled or sparse to summarize, reply with exactly: "
-        "INSUFFICIENT_TEXT"
-    )
-    user = f"Title: {title}\n\nPaper excerpts:\n{text}"
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "stream": False,
-        "options": {"temperature": 0.3, "top_p": 0.9, "num_ctx": 8192},
-    }
-    _apply_thinking_off(payload, model)
-    r = requests.post(f"{base_url}/api/chat", json=payload, timeout=240)
-    r.raise_for_status()
-    content = (r.json().get("message", {}).get("content") or "")
-    return _strip_think(content)
-
-
 def summarize_paper(conn: sqlite3.Connection, paper_id: str, force: bool = False) -> str:
-    """Return a cached summary, generating and caching one if absent. Returns ""
-    when there is too little usable text or no model is available."""
-    _ensure_summary_col(conn)
-    if not force:
-        row = conn.execute("SELECT summary FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
-        if row and row[0]:
-            return row[0]
-
-    trow = conn.execute("SELECT title FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
-    if not trow:
-        return ""
-    title = trow[0] or paper_id
-
-    text = _gather_paper_text(conn, paper_id)
-    if len(text) < 200:
-        return ""
-
-    model = resolve_gen_model()
-    if not model:
-        return ""
-
-    summary = _summarize_with_llm(title, text, model, OLLAMA_BASE_URL)
-    if not summary or summary.strip() == "INSUFFICIENT_TEXT":
-        return ""
-
-    conn.execute("UPDATE papers SET summary = ? WHERE paper_id = ?", (summary, paper_id))
-    conn.commit()
-    return summary
+    """Web-layer wrapper: resolve the active model, then delegate to the shared
+    summariser. Returns "" when there's too little usable text or no model."""
+    return _summarize_paper_core(conn, paper_id, resolve_gen_model(), OLLAMA_BASE_URL, force=force)
 
 
 def _list_pdf_files() -> list:
