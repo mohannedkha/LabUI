@@ -145,6 +145,70 @@ def resolve_gen_model(force: bool = False) -> str:
     return chosen
 
 
+# ── Reasoning-model handling (Qwen3 / DeepSeek-R1 / QwQ "thinking") ───────────
+# Hybrid reasoning models emit a <think>…</think> block before the answer. We ask
+# Ollama to skip it (think=False) and also strip any leaked blocks defensively, so
+# summaries and chat never show raw chain-of-thought.
+import re as _re
+
+_THINK_BLOCK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL | _re.IGNORECASE)
+
+
+def _is_reasoning_model(name: str) -> bool:
+    n = (name or "").lower()
+    return any(k in n for k in ("qwen3", "deepseek-r1", "-r1", "qwq", "reasoning", "thinking"))
+
+
+def _apply_thinking_off(payload: dict, model: str) -> dict:
+    """Disable chain-of-thought for reasoning models (Ollama top-level `think`)."""
+    if _is_reasoning_model(model):
+        payload["think"] = False
+    return payload
+
+
+def _strip_think(text: str) -> str:
+    """Remove <think>…</think> blocks from a completed response."""
+    out = _THINK_BLOCK_RE.sub("", text)
+    # Drop an unmatched leading think (open tag with no close, or stray close).
+    if "</think>" in out and "<think>" not in out:
+        out = out.split("</think>", 1)[1]
+    return out.strip()
+
+
+def _filter_think_stream(token_iter):
+    """Yield a token stream with <think>…</think> spans removed, tolerant of tags
+    split across token boundaries."""
+    OPEN, CLOSE = "<think>", "</think>"
+    buf, in_think = "", False
+    for tok in token_iter:
+        buf += tok
+        out = ""
+        while buf:
+            if not in_think:
+                idx = buf.find(OPEN)
+                if idx == -1:
+                    keep = len(OPEN) - 1  # hold back a possible split open-tag
+                    if len(buf) > keep:
+                        out += buf[:-keep] if keep else buf
+                        buf = buf[-keep:] if keep else ""
+                    break
+                out += buf[:idx]
+                buf = buf[idx + len(OPEN):]
+                in_think = True
+            else:
+                idx = buf.find(CLOSE)
+                if idx == -1:
+                    keep = len(CLOSE) - 1  # hold back a possible split close-tag
+                    buf = buf[-keep:] if keep else ""
+                    break
+                buf = buf[idx + len(CLOSE):]
+                in_think = False
+        if out:
+            yield out
+    if buf and not in_think:
+        yield buf
+
+
 # ── Paper summaries (LLM-generated, cached on the papers row) ─────────────────
 # Earlier builds read pre-baked markdown from output/individual/*.md, which is no
 # longer produced — so summaries were always blank and the UI fell back to the
@@ -220,9 +284,11 @@ def _summarize_with_llm(title: str, text: str, model: str, base_url: str) -> str
         "stream": False,
         "options": {"temperature": 0.3, "top_p": 0.9, "num_ctx": 8192},
     }
+    _apply_thinking_off(payload, model)
     r = requests.post(f"{base_url}/api/chat", json=payload, timeout=240)
     r.raise_for_status()
-    return (r.json().get("message", {}).get("content") or "").strip()
+    content = (r.json().get("message", {}).get("content") or "")
+    return _strip_think(content)
 
 
 def summarize_paper(conn: sqlite3.Connection, paper_id: str, force: bool = False) -> str:
@@ -745,21 +811,27 @@ def _stream_tokens(query, chunks, agent_id=DEFAULT_AGENT, web_results=None,
             "num_ctx": GEN_NUM_CTX,
         },
     }
+    _apply_thinking_off(payload, gen_model)
     url = f"{base_url}/api/chat"
-    with requests.post(url, json=payload, stream=True, timeout=300) as resp:
-        resp.raise_for_status()
-        for raw in resp.iter_lines():
-            if not raw:
-                continue
-            try:
-                obj = json.loads(raw)
-            except Exception:
-                continue
-            token = obj.get("message", {}).get("content", "")
-            if token:
-                yield token
-            if obj.get("done"):
-                break
+
+    def _raw_tokens():
+        with requests.post(url, json=payload, stream=True, timeout=300) as resp:
+            resp.raise_for_status()
+            for raw in resp.iter_lines():
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    continue
+                token = obj.get("message", {}).get("content", "")
+                if token:
+                    yield token
+                if obj.get("done"):
+                    break
+
+    # Strip any leaked <think>…</think> reasoning so it never reaches the user.
+    yield from _filter_think_stream(_raw_tokens())
 
 
 @router.post("/query")
