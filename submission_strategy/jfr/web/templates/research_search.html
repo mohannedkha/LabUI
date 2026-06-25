@@ -196,20 +196,53 @@ function toast(msg) {
   setTimeout(() => t.remove(), 2500);
 }
 
-async function openPaper(paperId) {
-  try {
-    const r = await fetch('/api/rag/paper?id=' + encodeURIComponent(paperId));
-    const d = await r.json();
-    const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>${escapeHtml(d.title || paperId)}</title>
-      <style>body{font-family:Inter,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;color:#1c2230;line-height:1.6}h1{font-size:20px}.meta{color:#8b94a6;font-size:13px}.toc{margin:14px 0;padding:14px;background:#f7f8fa;border-radius:8px;font-size:13px}a{color:#5e6bf0}</style></head><body>
-      <h1>${escapeHtml(d.title || paperId)}</h1>
-      <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
-      ${d.pdf_available ? `<p><a href="/research/paper/${encodeURIComponent(paperId)}/view" target="_blank">Read & clip ↗</a></p>` : ''}
-      <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
-      ${d.summary ? `<h2>Summary</h2><pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(d.summary)}</pre>` : ''}
-      </body></html>`);
-  } catch (e) { alert('Failed: ' + e.message); }
+function _paperShell(d, paperId, summaryHtml) {
+  return `<html><head><title>${escapeHtml(d.title || paperId)}</title>
+    <style>body{font-family:Inter,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;color:#1c2230;line-height:1.6}h1{font-size:20px}h2{font-size:15px;margin-top:22px}.meta{color:#8b94a6;font-size:13px}.toc{margin:14px 0;padding:14px;background:#f7f8fa;border-radius:8px;font-size:13px}.summary{font-size:15px}.muted{color:#8b94a6;font-style:italic}a{color:#5e6bf0}</style></head><body>
+    <h1>${escapeHtml(d.title || paperId)}</h1>
+    <div class="meta">${escapeHtml(d.authors || '')} ${d.year ? '· ' + d.year : ''}</div>
+    ${d.pdf_available ? `<p><a href="/research/paper/${encodeURIComponent(paperId)}/view" target="_blank">Read & clip ↗</a></p>` : ''}
+    <h2>Summary</h2>
+    <div class="summary">${summaryHtml}</div>
+    <div class="toc"><strong>Sections:</strong><br/>${(d.sections || []).map(s => `${escapeHtml(s.name)} (p. ${s.page_start}${s.page_end !== s.page_start ? '–' + s.page_end : ''})`).join('<br/>')}</div>
+    </body></html>`;
+}
+
+function _summaryToHtml(text) {
+  // Light prose rendering: paragraphs split on blank lines, HTML-escaped.
+  return text.trim().split(/\n\s*\n/).map(p =>
+    `<p>${escapeHtml(p.trim()).replace(/\n/g, ' ')}</p>`).join('');
+}
+
+function openPaper(paperId) {
+  // Open the window synchronously (inside the click) so popup blockers allow it,
+  // then fill it once data — and if needed a freshly generated summary — arrives.
+  const w = window.open('', '_blank');
+  if (w) w.document.write('<p style="font-family:Inter,sans-serif;color:#8b94a6;margin:40px">Loading…</p>');
+  (async () => {
+    try {
+      const d = await (await fetch('/api/rag/paper?id=' + encodeURIComponent(paperId))).json();
+      let summaryHtml;
+      if (d.summary) {
+        summaryHtml = _summaryToHtml(d.summary);
+      } else {
+        if (w) w.document.body.innerHTML =
+          '<p style="font-family:Inter,sans-serif;color:#8b94a6;margin:40px">Generating summary with the local model — this can take a moment…</p>';
+        try {
+          const sr = await fetch('/api/rag/paper/summarize?id=' + encodeURIComponent(paperId), { method: 'POST' });
+          if (sr.ok) summaryHtml = _summaryToHtml((await sr.json()).summary || '');
+          else summaryHtml = '<p class="muted">No summary could be generated for this paper (text may be too sparse or garbled, or no model is installed).</p>';
+        } catch (e) {
+          summaryHtml = '<p class="muted">Summary generation failed: ' + escapeHtml(e.message) + '</p>';
+        }
+      }
+      const html = _paperShell(d, paperId, summaryHtml);
+      if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+    } catch (e) {
+      if (w) w.document.body.innerHTML = '<p style="font-family:Inter,sans-serif;margin:40px">Failed: ' + escapeHtml(e.message) + '</p>';
+      else alert('Failed: ' + e.message);
+    }
+  })();
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

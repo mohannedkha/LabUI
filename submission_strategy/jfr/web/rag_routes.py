@@ -95,6 +95,26 @@ def _open_db() -> sqlite3.Connection:
     return conn
 
 
+def _resolve_pdf_path(source_pdf: Optional[str]) -> Optional[Path]:
+    """Return a readable path to a paper's PDF. The DB stores the absolute path
+    captured at index time; if the project was moved or copied to another machine
+    that path is stale, so fall back to locating the file by name under the
+    current papers dir (searched recursively)."""
+    if not source_pdf:
+        return None
+    p = Path(source_pdf)
+    if p.exists():
+        return p
+    try:
+        if PAPERS_PDF_DIR.exists():
+            match = next(PAPERS_PDF_DIR.rglob(p.name), None)
+            if match and match.exists():
+                return match
+    except Exception:
+        pass
+    return None
+
+
 def list_ollama_models() -> list[str]:
     """Names of models the user has actually pulled into Ollama (empty on error)."""
     try:
@@ -143,6 +163,57 @@ def resolve_gen_model(force: bool = False) -> str:
 
     _resolved_gen_model = chosen
     return chosen
+
+
+# ── Reasoning-model handling (Qwen3 / DeepSeek-R1 / QwQ "thinking") ───────────
+# The summarisation core + think-handling live in generation.summarize so the
+# web app and the bulk CLI share one implementation. _filter_think_stream is the
+# only streaming-specific piece and stays here (used by the chat SSE path).
+from generation.summarize import (
+    apply_thinking_off as _apply_thinking_off,
+    ensure_summary_col as _ensure_summary_col,
+    summarize_paper as _summarize_paper_core,
+)
+
+
+def _filter_think_stream(token_iter):
+    """Yield a token stream with <think>…</think> spans removed, tolerant of tags
+    split across token boundaries."""
+    OPEN, CLOSE = "<think>", "</think>"
+    buf, in_think = "", False
+    for tok in token_iter:
+        buf += tok
+        out = ""
+        while buf:
+            if not in_think:
+                idx = buf.find(OPEN)
+                if idx == -1:
+                    keep = len(OPEN) - 1  # hold back a possible split open-tag
+                    if len(buf) > keep:
+                        out += buf[:-keep] if keep else buf
+                        buf = buf[-keep:] if keep else ""
+                    break
+                out += buf[:idx]
+                buf = buf[idx + len(OPEN):]
+                in_think = True
+            else:
+                idx = buf.find(CLOSE)
+                if idx == -1:
+                    keep = len(CLOSE) - 1  # hold back a possible split close-tag
+                    buf = buf[-keep:] if keep else ""
+                    break
+                buf = buf[idx + len(CLOSE):]
+                in_think = False
+        if out:
+            yield out
+    if buf and not in_think:
+        yield buf
+
+
+def summarize_paper(conn: sqlite3.Connection, paper_id: str, force: bool = False) -> str:
+    """Web-layer wrapper: resolve the active model, then delegate to the shared
+    summariser. Returns "" when there's too little usable text or no model."""
+    return _summarize_paper_core(conn, paper_id, resolve_gen_model(), OLLAMA_BASE_URL, force=force)
 
 
 def _list_pdf_files() -> list:
@@ -376,6 +447,9 @@ def _auto_index_loop() -> None:
                         _ingest_state["message"] = f"build_index failed (exit {r2.returncode}): {_tail(r2.stdout, r2.stderr)}"
                     else:
                         _ingest_state["message"] = f"Indexed {len(new_ids)} paper(s) ✓"
+                        # Generate summaries for the newly indexed papers in the
+                        # background so they're ready when the user opens a paper.
+                        _summary_executor.submit(_run_summary_build)
                 _ingest_state["running"] = False
             else:
                 _ingest_state["message"] = f"Up to date ({len(pdf_files)} PDFs)"
@@ -631,21 +705,27 @@ def _stream_tokens(query, chunks, agent_id=DEFAULT_AGENT, web_results=None,
             "num_ctx": GEN_NUM_CTX,
         },
     }
+    _apply_thinking_off(payload, gen_model)
     url = f"{base_url}/api/chat"
-    with requests.post(url, json=payload, stream=True, timeout=300) as resp:
-        resp.raise_for_status()
-        for raw in resp.iter_lines():
-            if not raw:
-                continue
-            try:
-                obj = json.loads(raw)
-            except Exception:
-                continue
-            token = obj.get("message", {}).get("content", "")
-            if token:
-                yield token
-            if obj.get("done"):
-                break
+
+    def _raw_tokens():
+        with requests.post(url, json=payload, stream=True, timeout=300) as resp:
+            resp.raise_for_status()
+            for raw in resp.iter_lines():
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    continue
+                token = obj.get("message", {}).get("content", "")
+                if token:
+                    yield token
+                if obj.get("done"):
+                    break
+
+    # Strip any leaked <think>…</think> reasoning so it never reaches the user.
+    yield from _filter_think_stream(_raw_tokens())
 
 
 @router.post("/query")
@@ -822,8 +902,9 @@ def api_paper(id: str = Query("")):
 
     try:
         conn = _open_db()
+        _ensure_summary_col(conn)
         row = conn.execute(
-            "SELECT title, authors, year, source_pdf FROM papers WHERE paper_id = ?",
+            "SELECT title, authors, year, source_pdf, summary FROM papers WHERE paper_id = ?",
             (paper_id,),
         ).fetchone()
         sections = conn.execute(
@@ -838,22 +919,112 @@ def api_paper(id: str = Query("")):
     if not row:
         raise HTTPException(404, "paper not found")
 
-    summary_text = ""
-    try:
-        for md in SUMMARIES_DIR.glob("*.md"):
-            if paper_id in md.stem or paper_id.replace("_", " ") in md.stem:
-                summary_text = md.read_text(encoding="utf-8", errors="replace")
-                break
-    except Exception:
-        pass
+    # Prefer the cached LLM summary; fall back to legacy markdown if present.
+    summary_text = row[4] or ""
+    if not summary_text:
+        try:
+            for md in SUMMARIES_DIR.glob("*.md"):
+                if paper_id in md.stem or paper_id.replace("_", " ") in md.stem:
+                    summary_text = md.read_text(encoding="utf-8", errors="replace")
+                    break
+        except Exception:
+            pass
 
-    pdf_available = bool(row[3] and Path(row[3]).exists())
+    pdf_available = _resolve_pdf_path(row[3]) is not None
     return {
         "paper_id": paper_id, "title": row[0], "authors": row[1], "year": row[2],
         "source_pdf": row[3], "pdf_available": pdf_available,
         "sections": [{"name": s[0], "page_start": s[1], "page_end": s[2]} for s in sections],
         "summary": summary_text,
+        "summary_ready": bool(summary_text),
     }
+
+
+# ── /paper/summarize — generate (and cache) a summary on demand ────────────────
+@router.post("/paper/summarize")
+def api_paper_summarize(id: str = Query(""), force: bool = Query(False)):
+    paper_id = id.strip()
+    if not paper_id:
+        raise HTTPException(400, "missing id parameter")
+    if not DB_PATH.exists():
+        raise HTTPException(404, "database not found")
+    conn = _open_db()
+    try:
+        summary = summarize_paper(conn, paper_id, force=force)
+    except requests.RequestException as e:
+        raise HTTPException(503, f"Model request failed: {e}")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+    if not summary:
+        raise HTTPException(
+            422,
+            "Could not generate a summary — the paper text may be too sparse or garbled, "
+            "or no Ollama model is installed.",
+        )
+    return {"paper_id": paper_id, "summary": summary}
+
+
+# ── /summaries/build — background pass over papers missing a summary ──────────
+_summary_state: dict = {"running": False, "message": "Idle", "done": 0, "total": 0}
+_summary_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="summarize")
+
+
+def _run_summary_build(force: bool = False) -> None:
+    try:
+        if not DB_PATH.exists():
+            _summary_state.update({"running": False, "message": "No index yet"})
+            return
+        conn = _open_db()
+        _ensure_summary_col(conn)
+        if force:
+            rows = conn.execute("SELECT paper_id FROM papers").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT paper_id FROM papers WHERE summary IS NULL OR summary = ''"
+            ).fetchall()
+        ids = [r[0] for r in rows]
+
+        if not ids:
+            conn.close()
+            _summary_state.update({"running": False, "done": 0, "total": 0,
+                                   "message": "All papers already summarized ✓"})
+            return
+
+        if not resolve_gen_model():
+            conn.close()
+            _summary_state.update({"running": False, "message": "No Ollama model installed."})
+            return
+
+        _summary_state.update({"running": True, "total": len(ids), "done": 0,
+                               "message": f"Summarizing {len(ids)} paper(s)…"})
+        done = 0
+        for pid in ids:
+            try:
+                summarize_paper(conn, pid, force=force)
+            except Exception as e:
+                print(f"[summary] failed for {pid}: {e}")
+            done += 1
+            _summary_state.update({"done": done, "message": f"Summarized {done}/{len(ids)}…"})
+        conn.close()
+        _summary_state.update({"running": False, "message": f"Done — {len(ids)} summary(ies) ✓"})
+    except Exception as e:
+        _summary_state.update({"running": False, "message": f"Summary build error: {e}"})
+
+
+@router.get("/summaries/build/status")
+def api_summaries_status():
+    return _summary_state
+
+
+@router.post("/summaries/build")
+def api_summaries_build(force: bool = Query(False)):
+    """Generate summaries for all papers that lack one (or all, with force=true)."""
+    if _summary_state.get("running"):
+        raise HTTPException(409, "Summary build already running; wait for it to finish")
+    _summary_executor.submit(_run_summary_build, force)
+    return {"status": "started"}
 
 
 # ── /pdf ──────────────────────────────────────────────────────────────────────
@@ -872,10 +1043,9 @@ def api_pdf(id: str = Query("")):
     except Exception as e:
         raise HTTPException(500, str(e))
 
-    if row and row[0]:
-        p = Path(row[0])
-        if p.exists():
-            return FileResponse(str(p), media_type="application/pdf", filename=p.name)
+    path = _resolve_pdf_path(row[0] if row else None)
+    if path:
+        return FileResponse(str(path), media_type="application/pdf", filename=path.name)
     raise HTTPException(404, "PDF not found")
 
 
@@ -1359,6 +1529,8 @@ def _trigger_ingest_once() -> None:
             return
         _ingest_state.update({"running": False, "last_returncode": 0,
                               "message": f"Indexed {len(new_ids)} paper(s) ✓"})
+        # Generate summaries for the newly indexed papers in the background.
+        _summary_executor.submit(_run_summary_build)
     except Exception as e:
         _ingest_state.update({"running": False, "message": f"Trigger error: {e}"})
 
@@ -1411,6 +1583,9 @@ def _run_reprocess() -> None:
             msg = "No garbled papers found — library is clean ✓"
         _reprocess_state.update({"running": False, "last_returncode": 0,
                                  "found": found, "repaired": repaired, "message": msg})
+        # Repaired papers were re-indexed with empty summaries — regenerate them.
+        if repaired:
+            _summary_executor.submit(_run_summary_build)
     except Exception as e:
         _reprocess_state.update({"running": False, "message": f"Reprocess error: {e}"})
 

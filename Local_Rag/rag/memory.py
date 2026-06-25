@@ -419,6 +419,13 @@ def extract_and_save_memories(
         print(f"[memory] extraction request failed: {e}")
         return []
 
+    # Reasoning models (Qwen3 / R1 / QwQ) prepend a <think>…</think> block — drop it
+    # so chain-of-thought lines aren't mistaken for extracted findings.
+    import re as _re
+    text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL | _re.IGNORECASE).strip()
+    if "</think>" in text and "<think>" not in text:
+        text = text.split("</think>", 1)[1].strip()
+
     if not text or text.lower().startswith("none"):
         return []
 

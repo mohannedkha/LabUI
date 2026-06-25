@@ -37,8 +37,11 @@ GEN_MODEL        = (os.environ.get("RAG_GEN_MODEL")
                     or os.environ.get("LABUI_GEN_MODEL")
                     or os.environ.get("CODEX_GEN_MODEL") or "").strip()
 # When auto-selecting, prefer model names containing these substrings (best first).
+# Qwen3 leads: it's the highest-quality local generator we target for summaries,
+# chat, and memory extraction. Override with RAG_GEN_PREFER, or pin one outright
+# with RAG_GEN_MODEL / LABUI_GEN_MODEL (e.g. "qwen3:32b").
 GEN_MODEL_PREFER = [s.strip() for s in os.environ.get(
-    "RAG_GEN_PREFER", "gemma,llama,qwen,mistral,phi").split(",") if s.strip()]
+    "RAG_GEN_PREFER", "qwen3,qwen2.5,qwen,llama,gemma,mistral,phi").split(",") if s.strip()]
 # Back-compat alias used by a couple of status checks; derived, not authoritative.
 GEN_MODEL_ALIAS  = (GEN_MODEL.split(":")[0] if GEN_MODEL else "")
 

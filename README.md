@@ -71,7 +71,7 @@ upload page's *Auto-index* panel, or via `GET /api/rag/status`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `RAG_GEN_MODEL` | *(auto)* | Pin a generator model. Empty = auto-detect the first installed Ollama model (preferring `RAG_GEN_PREFER`). |
-| `RAG_GEN_PREFER` | `gemma,llama,qwen,mistral,phi` | Substring preference order when auto-selecting. |
+| `RAG_GEN_PREFER` | `qwen3,qwen2.5,qwen,llama,gemma,mistral,phi` | Substring preference order when auto-selecting (Qwen3 first). |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint. |
 | `RAG_EMBED_MODEL` / `RAG_EMBED_DIM` | `BAAI/bge-m3` / `1024` | Embedder. **Changing the dim requires a fresh re-index** (it's baked into the vector table). |
 | `RAG_RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` | Cross-encoder reranker. |
