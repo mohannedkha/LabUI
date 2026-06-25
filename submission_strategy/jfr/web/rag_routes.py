@@ -95,6 +95,26 @@ def _open_db() -> sqlite3.Connection:
     return conn
 
 
+def _resolve_pdf_path(source_pdf: Optional[str]) -> Optional[Path]:
+    """Return a readable path to a paper's PDF. The DB stores the absolute path
+    captured at index time; if the project was moved or copied to another machine
+    that path is stale, so fall back to locating the file by name under the
+    current papers dir (searched recursively)."""
+    if not source_pdf:
+        return None
+    p = Path(source_pdf)
+    if p.exists():
+        return p
+    try:
+        if PAPERS_PDF_DIR.exists():
+            match = next(PAPERS_PDF_DIR.rglob(p.name), None)
+            if match and match.exists():
+                return match
+    except Exception:
+        pass
+    return None
+
+
 def list_ollama_models() -> list[str]:
     """Names of models the user has actually pulled into Ollama (empty on error)."""
     try:
@@ -910,7 +930,7 @@ def api_paper(id: str = Query("")):
         except Exception:
             pass
 
-    pdf_available = bool(row[3] and Path(row[3]).exists())
+    pdf_available = _resolve_pdf_path(row[3]) is not None
     return {
         "paper_id": paper_id, "title": row[0], "authors": row[1], "year": row[2],
         "source_pdf": row[3], "pdf_available": pdf_available,
@@ -1023,10 +1043,9 @@ def api_pdf(id: str = Query("")):
     except Exception as e:
         raise HTTPException(500, str(e))
 
-    if row and row[0]:
-        p = Path(row[0])
-        if p.exists():
-            return FileResponse(str(p), media_type="application/pdf", filename=p.name)
+    path = _resolve_pdf_path(row[0] if row else None)
+    if path:
+        return FileResponse(str(path), media_type="application/pdf", filename=path.name)
     raise HTTPException(404, "PDF not found")
 
 
