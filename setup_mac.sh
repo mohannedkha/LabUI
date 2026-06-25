@@ -45,19 +45,37 @@ esac
 echo "→ Python: $PY ($("$PY" --version 2>&1))"
 
 # ── 2. Build / reuse the venv ─────────────────────────────────────────────────
+# A venv copied from another machine (or carried across an OS reinstall) is
+# broken: its interpreter symlinks dangle, so pip falls back to the
+# externally-managed Homebrew Python and aborts with
+# "error: externally-managed-environment". Validate before reusing; rebuild if
+# the interpreter is missing or not the Python 3.12 we expect.
+venv_ok() {
+  [ -x "$VENV/bin/python" ] && \
+    "$VENV/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info[:2]==(3,12) else 1)' >/dev/null 2>&1
+}
 if [ -d "$VENV" ]; then
-  echo "→ venv exists at $VENV — reusing (rm -rf it to rebuild clean)."
+  if venv_ok; then
+    echo "→ venv exists at $VENV — reusing (rm -rf it to rebuild clean)."
+  else
+    echo "→ Existing venv at $VENV is stale/broken (copied from another machine or"
+    echo "  a previous OS install) — rebuilding clean."
+    rm -rf "$VENV"
+    "$PY" -m venv "$VENV"
+  fi
 else
   echo "→ Creating venv…"
   "$PY" -m venv "$VENV"
 fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
-python -m pip install -U pip wheel >/dev/null
+# Install via the venv's interpreter explicitly so we never fall through to the
+# externally-managed system Python even if activation is shadowed.
+"$VENV/bin/python" -m pip install -U pip wheel >/dev/null
 echo "→ Installing jfr app (editable)…"
-pip install -e "$JFR_ROOT"
+"$VENV/bin/python" -m pip install -e "$JFR_ROOT"
 echo "→ Installing RAG requirements…"
-pip install -r "$RAG_REQS"
+"$VENV/bin/python" -m pip install -r "$RAG_REQS"
 
 # ── 3. Verify sqlite-vec loads (the macOS gotcha) ─────────────────────────────
 echo -n "→ sqlite-vec extension: "
