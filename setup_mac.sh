@@ -20,6 +20,7 @@ set -euo pipefail
 
 APPS_ROOT="$(cd "$(dirname "$0")" && pwd)"
 JFR_ROOT="$APPS_ROOT/submission_strategy"
+ROOT_REQS="$APPS_ROOT/requirements.txt"            # consolidated single source of truth
 RAG_REQS="$APPS_ROOT/Local_Rag/rag/requirements.txt"
 VENV="$JFR_ROOT/.venv"
 PYBIN="$VENV/bin/python"   # always install/run through THIS, never a bare `pip`
@@ -106,6 +107,13 @@ echo "→ Installing jfr app (editable)…"
 "$PYBIN" -m pip install -e "$JFR_ROOT"
 echo "→ Installing RAG requirements (torch, docling, … — this is the slow part)…"
 "$PYBIN" -m pip install -r "$RAG_REQS"
+# The consolidated top-level list is the single source of truth for the whole app
+# (PyMuPDF for PDF reading, python-multipart for uploads, httpx, feedparser, …).
+# Install it last so its known-good version floors win.
+if [ -f "$ROOT_REQS" ]; then
+  echo "→ Installing consolidated app requirements (PDF reading, uploads, web, …)…"
+  "$PYBIN" -m pip install -r "$ROOT_REQS"
+fi
 
 # ── 3. Verify the install really completed (fail loudly HERE, not at runtime) ──
 echo "→ Verifying sqlite-vec + core imports…"
@@ -125,6 +133,8 @@ required = [
     "fastapi", "uvicorn", "qdrant_client", "jinja2",
     "torch", "sentence_transformers", "transformers",
     "docling", "rank_bm25", "numpy", "pydantic", "requests",
+    "fitz",       # PyMuPDF — PDF text extraction (chat attachments / reading)
+    "feedparser", "apscheduler",  # journal corpus refresh + scheduler
 ]
 missing = []
 for m in required:
